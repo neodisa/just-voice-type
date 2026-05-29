@@ -604,7 +604,7 @@ def run_app(args):
 
             # подменю «Язык»
             self._lang_items = {}
-            for code in (None, "ru", "uk", "en"):
+            for code in (None, "uk", "en", "ru"):
                 item = rumps.MenuItem(
                     f"{LANG_FLAGS[code]} {LANG_NAMES[code]}".strip(),
                     callback=self._make_lang_setter(code),
