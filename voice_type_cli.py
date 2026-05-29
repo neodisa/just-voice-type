@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""whisper_flow.py — локальный WhisperFlow для русского (Apple Silicon)."""
+"""voice_type_cli.py — Just Voice Type, headless CLI (Apple Silicon)."""
 from __future__ import annotations
 import argparse, os, queue, subprocess, sys, tempfile, threading, time, wave
 from dataclasses import dataclass
@@ -46,7 +46,7 @@ class Recorder:
         if not self._frames: return None
         audio = self.np.concatenate(self._frames, axis=0)
         if len(audio) / self.sample_rate < 0.3: return None
-        path = os.path.join(tempfile.gettempdir(), f"whisper_flow_{int(time.time()*1000)}.wav")
+        path = os.path.join(tempfile.gettempdir(), f"voice_type_{int(time.time()*1000)}.wav")
         with wave.open(path, "wb") as wf:
             wf.setnchannels(CHANNELS); wf.setsampwidth(SAMPLE_WIDTH); wf.setframerate(self.sample_rate)
             wf.writeframes(audio.tobytes())

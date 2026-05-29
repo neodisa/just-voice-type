@@ -47,7 +47,7 @@ After granting, **fully restart** Terminal (Cmd+Q, then reopen).
 ## Run
 
 ```bash
-python3 whisper_flow_app.py
+python3 voice_type.py
 ```
 
 A 🎙 icon appears in the menubar. Hold Right Option — a capsule with a pulsing dot pops up at the bottom of the screen. Release it — the recognized text is pasted at the cursor.
@@ -64,7 +64,7 @@ A 🎙 icon appears in the menubar. Hold Right Option — a capsule with a pulsi
 | `--no-restore-clipboard` | Don't restore the previous clipboard contents. |
 | `--notify` | Show a macOS notification with the recognized text. |
 
-There's also a headless CLI version, `whisper_flow.py`, with the same flags and no menubar UI.
+There's also a headless CLI version, `voice_type_cli.py`, with the same flags and no menubar UI.
 
 ## Autostart on login
 
@@ -73,11 +73,11 @@ There's also a headless CLI version, `whisper_flow.py`, with the same flags and 
 ```
 
 The script:
-1. Renders `com.whisperflow.local.plist` (a template) with your project's actual path.
+1. Renders `com.justvoicetype.local.plist` (a template) with your project's actual path.
 2. Drops the result into `~/Library/LaunchAgents/`.
 3. Registers it via `launchctl bootstrap` and starts it immediately.
 
-After this, 🎙 appears automatically on every login. Logs live at `whisper_flow.log` and `whisper_flow.err.log` in the project root.
+After this, 🎙 appears automatically on every login. Logs live at `voice_type.log` and `voice_type.err.log` in the project root.
 
 **Heads up:** once autostart is enabled, the macOS permissions (Accessibility / Input Monitoring / Microphone) must be granted to the `python3` binary inside `.venv` — not to Terminal — because launchd runs it directly. macOS will usually prompt you the first time it tries to read the keyboard or microphone.
 
@@ -90,17 +90,17 @@ After this, 🎙 appears automatically on every login. Logs live at `whisper_flo
 ### Check status / tail logs
 
 ```bash
-launchctl print gui/$(id -u)/com.whisperflow.local | head -30
-tail -f whisper_flow.log
-tail -f whisper_flow.err.log
+launchctl print gui/$(id -u)/com.justvoicetype.local | head -30
+tail -f voice_type.log
+tail -f voice_type.err.log
 ```
 
 ## Alternative models
 
 ```bash
-python3 whisper_flow_app.py --model mlx-community/whisper-medium-mlx        # faster, slightly less accurate
-python3 whisper_flow_app.py --model mlx-community/whisper-small-mlx         # even faster
-python3 whisper_flow_app.py --engine faster --model large-v3                # CPU faster-whisper fallback
+python3 voice_type.py --model mlx-community/whisper-medium-mlx        # faster, slightly less accurate
+python3 voice_type.py --model mlx-community/whisper-small-mlx         # even faster
+python3 voice_type.py --engine faster --model large-v3                # CPU faster-whisper fallback
 ```
 
 Models are downloaded from HuggingFace on first use (1–3 GB depending on size) and cached in `~/.cache/huggingface/`.
@@ -115,12 +115,9 @@ Models are downloaded from HuggingFace on first use (1–3 GB depending on size)
 | No sounds | `ls /System/Library/Sounds/` — make sure Tink/Pop exist. |
 | Model takes forever to load | First run only (~3 GB). Use `medium` for speed. |
 | Hallucinations like "Thanks for watching!" | Known Whisper artifact on silence. The most common ones are filtered out; for the rest, speak a bit longer. |
-| LaunchAgent restarts in a loop | `launchctl print gui/$(id -u)/com.whisperflow.local` shows the exit code. Usually missing permissions or no `.venv`. |
+| LaunchAgent restarts in a loop | `launchctl print gui/$(id -u)/com.justvoicetype.local` shows the exit code. Usually missing permissions or no `.venv`. |
 
 ## License
 
 [MIT](LICENSE)
 
-## Naming
-
-The internal module names and the LaunchAgent label — `whisper_flow` / `com.whisperflow.local` — are historical, kept from the first revision. The product is called **Just Voice Type**.

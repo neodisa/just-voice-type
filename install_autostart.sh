@@ -2,7 +2,7 @@
 # install_autostart.sh — install Just Voice Type as a LaunchAgent at login.
 #
 # What it does:
-#   1) Renders com.whisperflow.local.plist (template) with this project's path
+#   1) Renders com.justvoicetype.local.plist (template) with this project's path
 #   2) Copies it into ~/Library/LaunchAgents/
 #   3) Registers it via `launchctl bootstrap` and starts it
 #
@@ -13,10 +13,10 @@ set -e
 
 # Resolve project dir from this script's location — no hardcoded paths.
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLIST_NAME="com.whisperflow.local.plist"
+PLIST_NAME="com.justvoicetype.local.plist"
 SOURCE_PLIST="${PROJECT_DIR}/${PLIST_NAME}"
 TARGET_PLIST="${HOME}/Library/LaunchAgents/${PLIST_NAME}"
-LABEL="com.whisperflow.local"
+LABEL="com.justvoicetype.local"
 HF_HOME_DEFAULT="${HF_HOME:-${HOME}/.cache/huggingface}"
 
 # Sanity checks.
@@ -28,12 +28,12 @@ fi
 if [ ! -x "${PROJECT_DIR}/.venv/bin/python3" ]; then
     echo "[!] No venv at ${PROJECT_DIR}/.venv"
     echo "    Run first:"
-    echo "      cd ${PROJECT_DIR} && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && pip install rumps"
+    echo "      cd ${PROJECT_DIR} && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
     exit 1
 fi
 
-if [ ! -f "${PROJECT_DIR}/whisper_flow_app.py" ]; then
-    echo "[!] Missing whisper_flow_app.py in ${PROJECT_DIR}"
+if [ ! -f "${PROJECT_DIR}/voice_type.py" ]; then
+    echo "[!] Missing voice_type.py in ${PROJECT_DIR}"
     exit 1
 fi
 
@@ -68,8 +68,8 @@ cat <<EOF
     The 🎙 icon should appear in the menubar within a few seconds
     (longer on the very first run while the Whisper model downloads).
 
-    Logs:    ${PROJECT_DIR}/whisper_flow.log
-    Errors:  ${PROJECT_DIR}/whisper_flow.err.log
+    Logs:    ${PROJECT_DIR}/voice_type.log
+    Errors:  ${PROJECT_DIR}/voice_type.err.log
     Status:  launchctl print gui/\$(id -u)/${LABEL} | head -20
 
     Uninstall: ./uninstall_autostart.sh

@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-whisper_flow_app.py — WhisperFlow-аналог с menubar UI для macOS (Apple Silicon).
+voice_type.py — Just Voice Type: local push-to-talk dictation for macOS (Apple Silicon).
 
 UI:
-  • Иконка в menubar (rumps): 🎙 idle, 🔴 REC (мигает + бары громкости),
-    ⏳ распознаю, 🚫 пауза.
-  • Бипы macOS на старт/стоп записи.
-  • macOS-уведомление с распознанным текстом (--notify).
-  • Меню: Пауза, Скопировать последний текст, Выход.
+  • Menubar icon (rumps): 🎙 idle, 🔴 REC (blinks + volume bars),
+    ⏳ transcribing, 🚫 paused.
+  • macOS beeps on record start/stop.
+  • macOS notification with recognized text (--notify).
+  • Menu: Pause, Copy last text, Quit.
 
-Запуск:
-    python3 whisper_flow_app.py
-    python3 whisper_flow_app.py --hotkey f19 --model mlx-community/whisper-medium-mlx
+Run:
+    python3 voice_type.py
+    python3 voice_type.py --hotkey f19 --model mlx-community/whisper-medium-mlx
 
-Права macOS (System Settings → Privacy & Security):
-  Accessibility / Input Monitoring / Microphone → Terminal (или ваш терминал).
+macOS permissions (System Settings → Privacy & Security):
+  Accessibility / Input Monitoring / Microphone → Terminal (or your launcher).
 """
 
 from __future__ import annotations
@@ -295,7 +295,7 @@ class Recorder:
             return None
 
         path = os.path.join(
-            tempfile.gettempdir(), f"whisper_flow_{int(time.time() * 1000)}.wav"
+            tempfile.gettempdir(), f"voice_type_{int(time.time() * 1000)}.wav"
         )
         with wave.open(path, "wb") as wf:
             wf.setnchannels(CHANNELS)
@@ -598,7 +598,7 @@ def run_app(args):
     LANG_FLAGS = {None: "🌐", "ru": "🇷🇺", "uk": "🇺🇦", "en": "🇬🇧"}
     LANG_NAMES = {None: "Auto", "ru": "Russian", "uk": "Ukrainian", "en": "English"}
 
-    class WhisperFlowApp(rumps.App):
+    class VoiceTypeApp(rumps.App):
         def __init__(self):
             super().__init__("Voice Type", title="🎙", quit_button=None)
 
@@ -779,12 +779,12 @@ def run_app(args):
     except Exception as e:  # pragma: no cover - только на не-macOS / без pyobjc
         print(f"[!] Не удалось включить accessory-режим: {e}", file=sys.stderr)
 
-    WhisperFlowApp().run()
+    VoiceTypeApp().run()
 
 
 def main():
     ap = argparse.ArgumentParser(
-        description="WhisperFlow-аналог с menubar UI."
+        description="Just Voice Type — local push-to-talk dictation with menubar UI."
     )
     ap.add_argument("--engine", choices=("mlx", "faster"), default="mlx")
     ap.add_argument("--model", default=None)

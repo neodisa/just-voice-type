@@ -3,9 +3,9 @@
 
 set -e
 
-PLIST_NAME="com.whisperflow.local.plist"
+PLIST_NAME="com.justvoicetype.local.plist"
 TARGET_PLIST="${HOME}/Library/LaunchAgents/${PLIST_NAME}"
-LABEL="com.whisperflow.local"
+LABEL="com.justvoicetype.local"
 
 if launchctl print "gui/$(id -u)/${LABEL}" >/dev/null 2>&1; then
     echo "[+] Unloading from launchd..."
@@ -23,5 +23,5 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cat <<EOF
 [✓] Autostart removed.
     Manual run still works:
-      cd "${PROJECT_DIR}" && source .venv/bin/activate && python3 whisper_flow_app.py
+      cd "${PROJECT_DIR}" && source .venv/bin/activate && python3 voice_type.py
 EOF

@@ -10,12 +10,12 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.whisperflow.local</string>
+    <string>com.justvoicetype.local</string>
 
     <key>ProgramArguments</key>
     <array>
         <string>__PROJECT_DIR__/.venv/bin/python3</string>
-        <string>__PROJECT_DIR__/whisper_flow_app.py</string>
+        <string>__PROJECT_DIR__/voice_type.py</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -31,10 +31,10 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>__PROJECT_DIR__/whisper_flow.log</string>
+    <string>__PROJECT_DIR__/voice_type.log</string>
 
     <key>StandardErrorPath</key>
-    <string>__PROJECT_DIR__/whisper_flow.err.log</string>
+    <string>__PROJECT_DIR__/voice_type.err.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
