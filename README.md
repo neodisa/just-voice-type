@@ -1,27 +1,27 @@
 # Just Voice Type
 
-**Локальная push-to-talk диктовка для macOS** на базе Whisper (Apple Silicon, MLX).
-Зажал Right Option — наговорил — отпустил — текст вставился туда, где курсор. Никаких облаков, никаких API ключей, никаких подписок.
+**Local push-to-talk dictation for macOS**, powered by Whisper (Apple Silicon, MLX).
+Hold Right Option, speak, release — your text is pasted wherever the cursor is. No cloud, no API keys, no subscriptions.
 
-> Аналог Wispr Flow / Superwhisper, только всё крутится локально и бесплатно. RU/EN/мультиязычно.
+> A free, fully on-device alternative to Wispr Flow / Superwhisper. Works in English, Russian, and any other language Whisper supports.
 
-## Возможности
+## Features
 
-- 🎙 **Иконка в menubar** (статусы: idle, REC, распознаю, пауза).
-- ⌨️ **Push-to-talk** на любую системную клавишу: Right Option (по умолчанию), Fn, F13–F20, etc.
-- 🧠 **MLX Whisper** (по умолчанию `large-v3`) — быстрый на M-чипах. Альтернативно `faster-whisper` на CPU.
-- 📋 **Авто-вставка** распознанного текста через буфер обмена + `Cmd+V`, с восстановлением исходного буфера.
-- 🔔 macOS-звуки на старт/стоп записи, опциональные уведомления.
-- 🚀 **Автозапуск** через LaunchAgent — иконка появляется сразу после логина.
-- 🇷🇺 Заточено под русский, но работает на любом языке Whisper.
+- 🎙 **Menubar icon** with live status (idle, REC, processing, paused)
+- ⌨️ **Push-to-talk** on any system key: Right Option (default), Fn, F13–F20, etc.
+- 🧠 **MLX Whisper** (default `large-v3`) — fast on Apple Silicon. Falls back to `faster-whisper` on CPU.
+- 📋 **Auto-paste** of recognized text via clipboard + `Cmd+V`, with original clipboard restored
+- 🔔 macOS sounds on start/stop, optional notifications
+- 🚀 **Autostart** as a LaunchAgent — the icon shows up right after login
+- 🌐 Language-agnostic: pass `--lang en`, `--lang ru`, `--lang de`, etc.
 
-## Требования
+## Requirements
 
-- macOS на Apple Silicon (M1/M2/M3/M4).
-- Python 3.10+.
-- Первый запуск качает модель Whisper (~3 GB для `large-v3`).
+- macOS on Apple Silicon (M1/M2/M3/M4)
+- Python 3.10+
+- First run downloads the Whisper model (~3 GB for `large-v3`) into `~/.cache/huggingface/`
 
-## Установка
+## Install
 
 ```bash
 git clone https://github.com/neodisa/just-voice-type.git
@@ -30,65 +30,64 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
-pip install rumps   # для UI в menubar
 ```
 
-### Права macOS (обязательно)
+### macOS permissions (required)
 
 `System Settings → Privacy & Security`:
 
 - **Microphone** ✓
-- **Accessibility** ✓ — без этого `pynput` не увидит Right Option
+- **Accessibility** ✓ — without this, `pynput` can't see Right Option
 - **Input Monitoring** ✓
 
-Выдать нужно тому процессу, из которого запускаете: Terminal/iTerm на этапе разработки, либо `~/just-voice-type/.venv/bin/python3` если ставите автозапуск через LaunchAgent.
+Grant them to the process you're launching from: Terminal/iTerm while developing, or `~/just-voice-type/.venv/bin/python3` if you install the LaunchAgent.
 
-После выдачи прав **полностью** перезапустите Terminal (Cmd+Q + открыть заново).
+After granting, **fully restart** Terminal (Cmd+Q, then reopen).
 
-## Запуск
+## Run
 
 ```bash
 python3 whisper_flow_app.py
 ```
 
-В строке меню сверху появится 🎙. Зажмите Right Option — внизу всплывёт капсула с пульсацией. Отпустили — текст вставился туда, где был курсор.
+A 🎙 icon appears in the menubar. Hold Right Option — a capsule with a pulsing dot pops up at the bottom of the screen. Release it — the recognized text is pasted at the cursor.
 
-### CLI-флаги
+### CLI flags
 
-| Флаг | Значение |
+| Flag | Meaning |
 |---|---|
-| `--engine mlx \| faster` | Движок. По умолчанию `mlx` (быстрее на Apple Silicon). |
-| `--model <id>` | HF id модели. По умолчанию `mlx-community/whisper-large-v3-mlx`. |
-| `--lang ru` | Язык. По умолчанию `ru`. |
+| `--engine mlx \| faster` | Backend. Default `mlx` (fastest on Apple Silicon). |
+| `--model <id>` | HF model id. Default `mlx-community/whisper-large-v3-mlx`. |
+| `--lang en` | Language code. Default `ru`. Use `en`, `de`, `es`, etc. |
 | `--hotkey right_option` | `right_option`, `left_option`, `fn`, `right_shift`, `f13`..`f20`. |
-| `--no-paste` | Не вставлять, только класть в буфер. |
-| `--no-restore-clipboard` | Не восстанавливать предыдущее содержимое буфера. |
-| `--notify` | macOS-уведомление с распознанным текстом. |
+| `--no-paste` | Don't paste, only copy to clipboard. |
+| `--no-restore-clipboard` | Don't restore the previous clipboard contents. |
+| `--notify` | Show a macOS notification with the recognized text. |
 
-Без UI (только CLI) есть `whisper_flow.py` с тем же набором флагов.
+There's also a headless CLI version, `whisper_flow.py`, with the same flags and no menubar UI.
 
-## Автозапуск при логине
+## Autostart on login
 
 ```bash
 ./install_autostart.sh
 ```
 
-Скрипт:
-1. Рендерит `com.whisperflow.local.plist` (шаблон) под путь вашего проекта.
-2. Кладёт результат в `~/Library/LaunchAgents/`.
-3. Регистрирует через `launchctl bootstrap` и стартует.
+The script:
+1. Renders `com.whisperflow.local.plist` (a template) with your project's actual path.
+2. Drops the result into `~/Library/LaunchAgents/`.
+3. Registers it via `launchctl bootstrap` and starts it immediately.
 
-После этого 🎙 появляется сама при каждом входе. Логи: `whisper_flow.log` и `whisper_flow.err.log` в корне проекта.
+After this, 🎙 appears automatically on every login. Logs live at `whisper_flow.log` and `whisper_flow.err.log` in the project root.
 
-**Важно:** после установки автозапуска права (Accessibility / Input Monitoring / Microphone) нужны не Terminal, а самому `python3` из `.venv` — потому что launchd запускает его напрямую. macOS обычно сам спросит при первой попытке прочитать клавиатуру или микрофон.
+**Heads up:** once autostart is enabled, the macOS permissions (Accessibility / Input Monitoring / Microphone) must be granted to the `python3` binary inside `.venv` — not to Terminal — because launchd runs it directly. macOS will usually prompt you the first time it tries to read the keyboard or microphone.
 
-### Удалить автозапуск
+### Remove autostart
 
 ```bash
 ./uninstall_autostart.sh
 ```
 
-### Проверить статус / логи
+### Check status / tail logs
 
 ```bash
 launchctl print gui/$(id -u)/com.whisperflow.local | head -30
@@ -96,32 +95,32 @@ tail -f whisper_flow.log
 tail -f whisper_flow.err.log
 ```
 
-## Альтернативные модели
+## Alternative models
 
 ```bash
-python3 whisper_flow_app.py --model mlx-community/whisper-medium-mlx        # быстрее, чуть хуже
-python3 whisper_flow_app.py --model mlx-community/whisper-small-mlx         # ещё быстрее
-python3 whisper_flow_app.py --engine faster --model large-v3                # CPU faster-whisper
+python3 whisper_flow_app.py --model mlx-community/whisper-medium-mlx        # faster, slightly less accurate
+python3 whisper_flow_app.py --model mlx-community/whisper-small-mlx         # even faster
+python3 whisper_flow_app.py --engine faster --model large-v3                # CPU faster-whisper fallback
 ```
 
-Первый раз модель скачивается из HuggingFace (~1-3 GB), дальше живёт в `~/.cache/huggingface/`.
+Models are downloaded from HuggingFace on first use (1–3 GB depending on size) and cached in `~/.cache/huggingface/`.
 
 ## Troubleshooting
 
-| Симптом | Что делать |
+| Symptom | What to try |
 |---|---|
-| Нет иконки в menubar | Проверьте, не свернули ли её Bartender/HiddenBar. |
-| Иконка есть, но хоткей не реагирует | Не выданы Accessibility/Input Monitoring. Перезапустите Terminal после выдачи. |
-| Капсула не появляется | Tkinter не собран в системном Python. Поставьте Python через Homebrew или python.org. |
-| Звуки не играют | `ls /System/Library/Sounds/` — проверьте, что есть Tink/Pop. |
-| Модель долго грузит | Первый раз — да, ~3 GB. Возьмите `medium` для скорости. |
-| Распознаёт галлюцинации («Thanks for watching!») | Это известный артефакт Whisper на тишине. Они фильтруются автоматически, остальное — увеличьте длину фразы. |
-| LaunchAgent падает в цикле | `launchctl print gui/$(id -u)/com.whisperflow.local` покажет exit code. Часто — нет прав или нет `.venv`. |
+| No menubar icon | Check Bartender/HiddenBar isn't hiding it. |
+| Icon shows but the hotkey is dead | Accessibility / Input Monitoring not granted. Fully restart Terminal after granting. |
+| Capsule doesn't show up | Tkinter wasn't built into your system Python. Install Python via Homebrew or python.org. |
+| No sounds | `ls /System/Library/Sounds/` — make sure Tink/Pop exist. |
+| Model takes forever to load | First run only (~3 GB). Use `medium` for speed. |
+| Hallucinations like "Thanks for watching!" | Known Whisper artifact on silence. The most common ones are filtered out; for the rest, speak a bit longer. |
+| LaunchAgent restarts in a loop | `launchctl print gui/$(id -u)/com.whisperflow.local` shows the exit code. Usually missing permissions or no `.venv`. |
 
-## Лицензия
+## License
 
 [MIT](LICENSE)
 
-## Имена
+## Naming
 
-Кодовое имя модуля и LaunchAgent label — `whisper_flow` / `com.whisperflow.local` — историческое, осталось с первой ревизии. Проект называется **Just Voice Type**.
+The internal module names and the LaunchAgent label — `whisper_flow` / `com.whisperflow.local` — are historical, kept from the first revision. The product is called **Just Voice Type**.

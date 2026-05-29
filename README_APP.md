@@ -1,3 +1,3 @@
 # README_APP.md
 
-Содержимое перенесено в основной [README.md](README.md). Этот файл оставлен как редирект.
+Contents moved into the main [README.md](README.md). This file is kept as a redirect.

@@ -1,3 +1,3 @@
 # AUTOSTART.md
 
-Инструкция по автозапуску перенесена в основной [README.md → раздел «Автозапуск при логине»](README.md#автозапуск-при-логине).
+Autostart instructions are now in the main [README.md → "Autostart on login"](README.md#autostart-on-login).
