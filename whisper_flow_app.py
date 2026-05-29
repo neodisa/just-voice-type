@@ -596,7 +596,7 @@ def run_app(args):
 
     # эмодзи флажки для menubar (компактные)
     LANG_FLAGS = {None: "🌐", "ru": "🇷🇺", "uk": "🇺🇦", "en": "🇬🇧"}
-    LANG_NAMES = {None: "Auto", "ru": "Русский", "uk": "Українська", "en": "English"}
+    LANG_NAMES = {None: "Auto", "ru": "Russian", "uk": "Ukrainian", "en": "English"}
 
     class WhisperFlowApp(rumps.App):
         def __init__(self):
@@ -614,15 +614,15 @@ def run_app(args):
                 self._lang_items[code] = item
 
             self.menu = [
-                rumps.MenuItem(f"Хоткей: {args.hotkey}"),
-                rumps.MenuItem(f"Модель: {args.model.split('/')[-1]}"),
+                rumps.MenuItem(f"Hotkey: {args.hotkey}"),
+                rumps.MenuItem(f"Model: {args.model.split('/')[-1]}"),
                 None,
-                ("Язык", list(self._lang_items.values())),
+                ("Language", list(self._lang_items.values())),
                 None,
-                rumps.MenuItem("Пауза (выключить хоткей)", callback=self.toggle_enabled),
-                rumps.MenuItem("Скопировать последний текст", callback=self.copy_last),
+                rumps.MenuItem("Pause (disable hotkey)", callback=self.toggle_enabled),
+                rumps.MenuItem("Copy last text", callback=self.copy_last),
                 None,
-                rumps.MenuItem("Выход", callback=self.quit_app),
+                rumps.MenuItem("Quit", callback=self.quit_app),
             ]
             self._timer = rumps.Timer(self._on_tick, 0.3)
             self._timer.start()
@@ -633,7 +633,7 @@ def run_app(args):
                 # сброс галочек
                 for c, it in self._lang_items.items():
                     it.state = 1 if c == code else 0
-                print(f"[i] Язык установлен: {LANG_NAMES[code]}")
+                print(f"[i] Language set: {LANG_NAMES[code]}")
             return setter
 
         def _on_tick(self, _):
@@ -645,10 +645,10 @@ def run_app(args):
                 self.title = f"{blink} {'▮' * n}{'▯' * (5 - n)}"
             elif state["value"] == "transcribing":
                 dots = "." * (int(now * 2) % 4)
-                self.title = f"⏳ распознаю{dots}"
+                self.title = f"⏳ transcribing{dots}"
             elif now < done_until["ts"]:
-                # 2 секунды показываем «✓ в буфере» после распознавания
-                self.title = "✓ в буфере"
+                # show "✓ copied" for 2 seconds after transcription
+                self.title = "✓ copied"
             else:
                 # только микрофон, без лишних иконок
                 self.title = "🎙" if enabled["value"] else "🚫"
@@ -656,15 +656,15 @@ def run_app(args):
         def toggle_enabled(self, sender):
             enabled["value"] = not enabled["value"]
             sender.title = (
-                "Включить хоткей" if not enabled["value"] else "Пауза (выключить хоткей)"
+                "Enable hotkey" if not enabled["value"] else "Pause (disable hotkey)"
             )
 
         def copy_last(self, _):
             if last_text["value"]:
                 copy_to_clipboard(last_text["value"])
-                notify("Voice Type", "Последний текст скопирован")
+                notify("Voice Type", "Last text copied")
             else:
-                notify("Voice Type", "Пока ничего не распознано")
+                notify("Voice Type", "Nothing transcribed yet")
 
         def quit_app(self, _):
             rumps.quit_application()
@@ -684,7 +684,7 @@ def run_app(args):
                     tr = transcriber_holder["obj"]
                 if tr is None:
                     play_sound(SOUND_ERROR)
-                    notify("Voice Type", "Модель не загружена")
+                    notify("Voice Type", "Model not loaded")
                     continue
                 t0 = time.time()
                 # передаём текущий выбранный язык (None = auto)
