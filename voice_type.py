@@ -595,7 +595,7 @@ def run_app(args):
     current_lang = {"value": initial_lang}
 
     # эмодзи флажки для menubar (компактные)
-    LANG_FLAGS = {None: "🌐", "ru": "🇷🇺", "uk": "🇺🇦", "en": "🇬🇧"}
+    LANG_FLAGS = {None: "🌐", "ru": "", "uk": "🇺🇦", "en": "🇬🇧"}
     LANG_NAMES = {None: "Auto", "ru": "Russian", "uk": "Ukrainian", "en": "English"}
 
     class VoiceTypeApp(rumps.App):
@@ -606,7 +606,7 @@ def run_app(args):
             self._lang_items = {}
             for code in (None, "ru", "uk", "en"):
                 item = rumps.MenuItem(
-                    f"{LANG_FLAGS[code]} {LANG_NAMES[code]}",
+                    f"{LANG_FLAGS[code]} {LANG_NAMES[code]}".strip(),
                     callback=self._make_lang_setter(code),
                 )
                 # отметим текущий
