@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.python-version
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+
+# Local experiments
+Wispr app my/
+
+# Generated/rendered plist (install_autostart.sh writes one into ~/Library/LaunchAgents/)
