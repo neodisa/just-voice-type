@@ -14,7 +14,7 @@ def _require(pkg, pip_name=None):
         return __import__(pkg)
     except ImportError as e:
         name = pip_name or pkg
-        print(f"\n[!] Не установлен пакет '{pkg}'. pip install {name}\n", file=sys.stderr)
+        print(f"\n[!] Package '{pkg}' not installed. pip install {name}\n", file=sys.stderr)
         raise SystemExit(1) from e
 
 @dataclass
@@ -104,7 +104,7 @@ def parse_hotkey(name):
     if name.startswith("f") and name[1:].isdigit():
         k = getattr(kb.Key, name, None)
         if k is not None: return k
-    raise ValueError(f"Неизвестный хоткей: {name}")
+    raise ValueError(f"Unknown hotkey: {name}")
 
 def main():
     ap = argparse.ArgumentParser()
@@ -118,7 +118,7 @@ def main():
     if args.model is None:
         args.model = "mlx-community/whisper-large-v3-mlx" if args.engine=="mlx" else "large-v3"
     print(f"[+] {args.engine} | {args.model} | {args.lang} | hotkey={args.hotkey}")
-    print("[+] Загружаю модель (первый раз качается ~3GB)...")
+    print("[+] Loading model (first run downloads ~3GB)...")
     tr = MLXTranscriber(args.model, args.lang) if args.engine=="mlx" else FasterWhisperTranscriber(args.model, args.lang)
     rec = Recorder()
     jobs = queue.Queue()
@@ -131,7 +131,7 @@ def main():
                 if text:
                     print(f"[✓] ({dt:.1f}s) {text}")
                     deliver_text(text, do_paste=not args.no_paste, restore_clipboard=not args.no_restore_clipboard)
-                else: print("[·] Пусто.")
+                else: print("[·] Empty.")
             except Exception as e: print(f"[!] {e}", file=sys.stderr)
             finally:
                 try: os.remove(wav)
@@ -142,17 +142,17 @@ def main():
     down = {"v": False}
     def on_press(key):
         if key == hk and not down["v"]:
-            down["v"] = True; print("[●] Запись...", flush=True); rec.start()
+            down["v"] = True; print("[●] Recording...", flush=True); rec.start()
     def on_release(key):
         if key == hk and down["v"]:
-            down["v"] = False; print("[…] Распознаю...", flush=True)
+            down["v"] = False; print("[…] Transcribing...", flush=True)
             wav = rec.stop()
             if wav: jobs.put(wav)
-            else: print("[·] Слишком коротко.")
-    print("[+] Готов. Ctrl+C — выход.\n")
+            else: print("[·] Too short.")
+    print("[+] Ready. Ctrl+C to quit.\n")
     with kb.Listener(on_press=on_press, on_release=on_release) as l:
         try: l.join()
-        except KeyboardInterrupt: print("\n[+] Пока.")
+        except KeyboardInterrupt: print("\n[+] Bye.")
 
 if __name__ == "__main__":
     main()

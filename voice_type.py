@@ -153,10 +153,10 @@ class Recorder:
             # ограничим до моно если устройство умеет, иначе берём что есть
             max_in = int(info.get("max_input_channels", 1))
             channels = 1 if max_in >= 1 else max_in
-            print(f"[i] устройство: {info['name']}, sr={native_sr}, ch={channels}")
+            print(f"[i] device: {info['name']}, sr={native_sr}, ch={channels}")
             return native_sr, channels
         except Exception as e:
-            print(f"[!] не смог определить параметры устройства: {e}", file=sys.stderr)
+            print(f"[!] could not detect device parameters: {e}", file=sys.stderr)
             return 48000, 1
 
     def _reinit_portaudio(self):
@@ -210,12 +210,12 @@ class Recorder:
                 self._native_sr = actual_sr
                 if self._stream.channels:
                     self._native_channels = int(self._stream.channels)
-                print(f"[i] поток открыт: sr={actual_sr}, ch={self._native_channels}")
+                print(f"[i] stream opened: sr={actual_sr}, ch={self._native_channels}")
                 return True
             except Exception as e:
                 tried.append(f"sr={sr},ch={ch}: {e}")
                 continue
-        print("[!] открыть микрофон не вышло: " + "; ".join(tried), file=sys.stderr)
+        print("[!] failed to open microphone: " + "; ".join(tried), file=sys.stderr)
         return False
 
     def start(self):
@@ -228,12 +228,12 @@ class Recorder:
         # пробуем ещё раз (это лечит «протухший» аудио-контекст без рестарта app).
         if self._try_open():
             return
-        print("[i] переинициализирую PortAudio и пробую снова…", file=sys.stderr)
+        print("[i] reinitializing PortAudio and retrying...", file=sys.stderr)
         self._reinit_portaudio()
         if self._try_open():
             return
         self._recording = False
-        raise RuntimeError("не удалось открыть микрофон даже после reinit PortAudio")
+        raise RuntimeError("failed to open microphone even after PortAudio reinit")
 
     def stop(self) -> Optional[str]:
         with self._lock:
@@ -261,7 +261,7 @@ class Recorder:
         src_sr = self._native_sr or SAMPLE_RATE
         duration = len(audio) / src_sr
         if duration < 0.3:
-            print("[·] Слишком коротко (<0.3s)")
+            print("[·] Too short (<0.3s)")
             return None
 
         # простой ресемплинг до SAMPLE_RATE (16000) — линейная интерполяция
@@ -291,7 +291,7 @@ class Recorder:
         # Эмпирические пороги: если и RMS<0.003 и peak<0.02 — это тишина
         # (даже самый тихий шёпот даёт RMS ~0.005, peak ~0.05).
         if rms < 0.003 and peak < 0.02:
-            print("[·] Тишина — пропускаю (защита от 'Thank you')")
+            print("[·] Silence — skipping (guard against 'Thank you' hallucination)")
             return None
 
         path = os.path.join(
@@ -382,7 +382,7 @@ class MLXTranscriber:
         # печатаем определённый язык в лог (полезно для дебага)
         detected = result.get("language")
         if detected and not lang:
-            print(f"[i] язык определён как: {detected}")
+            print(f"[i] language detected: {detected}")
         return (result.get("text") or "").strip()
 
 
@@ -405,7 +405,7 @@ class FasterWhisperTranscriber:
             beam_size=5,
         )
         if info and not lang:
-            print(f"[i] язык определён как: {info.language}")
+            print(f"[i] language detected: {info.language}")
         return " ".join(seg.text.strip() for seg in segments).strip()
 
 
@@ -513,7 +513,7 @@ def parse_hotkey(name: str):
         key = getattr(keyboard.Key, name, None)
         if key is not None:
             return key
-    raise ValueError(f"Неизвестный хоткей: {name}")
+    raise ValueError(f"Unknown hotkey: {name}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -538,7 +538,7 @@ def ensure_accessibility(prompt: bool = True) -> bool:
         opts = {kAXTrustedCheckOptionPrompt: bool(prompt)}
         return bool(AXIsProcessTrustedWithOptions(opts))
     except Exception as e:  # pragma: no cover
-        print(f"[!] Проверка Accessibility не удалась: {e}", file=sys.stderr)
+        print(f"[!] Accessibility check failed: {e}", file=sys.stderr)
         return True  # не блокируем запуск
 
 
@@ -549,9 +549,9 @@ def run_app(args):
     # Запрашиваем доступ к Accessibility сразу — иначе хоткей молча не работает.
     if not ensure_accessibility(prompt=True):
         print(
-            "[!] Нет доступа к Accessibility. Включите Voice Type в "
-            "System Settings → Privacy & Security → Accessibility и "
-            "перезапустите приложение.",
+            "[!] No Accessibility permission. Enable Voice Type in "
+            "System Settings → Privacy & Security → Accessibility "
+            "and relaunch the app.",
             file=sys.stderr,
         )
 
@@ -574,9 +574,9 @@ def run_app(args):
                 else:
                     obj = FasterWhisperTranscriber(args.model, None)
                 transcriber_holder["obj"] = obj
-                print("[+] Модель загружена.")
+                print("[+] Model loaded.")
             except Exception as e:
-                print(f"[!] Ошибка загрузки модели: {e}", file=sys.stderr)
+                print(f"[!] Model load error: {e}", file=sys.stderr)
             finally:
                 transcriber_holder["loading"] = False
 
@@ -691,10 +691,10 @@ def run_app(args):
                 text = tr.transcribe(wav_path, language=current_lang["value"])
                 dt = time.time() - t0
                 if text and is_hallucination(text):
-                    print(f"[·] ({dt:.1f}s) галлюцинация Whisper, пропускаю: {text!r}")
+                    print(f"[·] ({dt:.1f}s) Whisper hallucination, skipping: {text!r}")
                     text = ""
                 if text:
-                    print(f"[✓] ({dt:.1f}s) в буфере: {text}")
+                    print(f"[✓] ({dt:.1f}s) copied: {text}")
                     last_text["value"] = text
                     play_sound(SOUND_DONE)  # сигнал: распознано и в буфере
                     deliver_text(
@@ -710,7 +710,7 @@ def run_app(args):
                         preview = text if len(text) < 120 else text[:117] + "…"
                         notify("Voice Type", preview)
                 else:
-                    print("[·] Пусто.")
+                    print("[·] Empty.")
             except Exception as e:
                 play_sound(SOUND_ERROR)
                 print(f"[!] {e}", file=sys.stderr)
@@ -750,7 +750,7 @@ def run_app(args):
                     jobs.put(wav)
                 else:
                     state["value"] = "idle"
-                    print("[·] Слишком коротко.")
+                    print("[·] Too short.")
         except Exception as e:
             print(f"[!] on_release: {e}", file=sys.stderr)
 
@@ -760,8 +760,8 @@ def run_app(args):
 
     get_transcriber()
 
-    print(f"[+] Voice Type запущен. Хоткей: {args.hotkey}. Модель: {args.model}")
-    print("[+] Ищите иконку 🎙 в строке меню вверху справа.")
+    print(f"[+] Voice Type started. Hotkey: {args.hotkey}. Model: {args.model}")
+    print("[+] Look for the 🎙 icon in the menubar (top-right).")
 
     # Работаем как menubar-утилита (accessory): без иконки в Dock и без меню
     # приложения в строке меню. Иначе при запуске из .app процесс Python.app
@@ -777,7 +777,7 @@ def run_app(args):
             NSApplicationActivationPolicyAccessory
         )
     except Exception as e:  # pragma: no cover - только на не-macOS / без pyobjc
-        print(f"[!] Не удалось включить accessory-режим: {e}", file=sys.stderr)
+        print(f"[!] Failed to enable accessory mode: {e}", file=sys.stderr)
 
     VoiceTypeApp().run()
 
