@@ -394,6 +394,7 @@ class FasterWhisperTranscriber:
             print("\n[!] pip install faster-whisper\n", file=sys.stderr)
             raise SystemExit(1) from e
         self._model = WhisperModel(model, device="cpu", compute_type="int8")
+        self.model = model
         self.language = language
 
     def transcribe(self, wav_path: str, language: Optional[str] = None) -> str:
@@ -559,22 +560,34 @@ def run_app(args):
 
     transcriber_holder: dict = {"obj": None, "loading": False}
 
+    # текущая выбранная модель (меняется из меню на лету)
+    current_model = {"value": args.model}
+
     def get_transcriber():
-        if transcriber_holder["obj"] is not None:
-            return transcriber_holder["obj"]
+        obj = transcriber_holder["obj"]
+        # если модель совпадает с выбранной — отдаём как есть
+        if obj is not None and getattr(obj, "model", None) == current_model["value"]:
+            return obj
+        # иначе нужна (пере)загрузка под текущую модель
         if transcriber_holder["loading"]:
             return None
         transcriber_holder["loading"] = True
+        transcriber_holder["obj"] = None
 
         def _load():
+            target = current_model["value"]
             try:
-                # инициируем с None — язык подставляется на каждый запрос
+                # инициируем с None — язык подставляется на каждый запрос.
+                # Для MLX веса грузятся лениво (на первом transcribe), так что
+                # конструктор почти мгновенный; для faster — модель грузится тут.
                 if args.engine == "mlx":
-                    obj = MLXTranscriber(args.model, None)
+                    obj = MLXTranscriber(target, None)
                 else:
-                    obj = FasterWhisperTranscriber(args.model, None)
-                transcriber_holder["obj"] = obj
-                print("[+] Model loaded.")
+                    obj = FasterWhisperTranscriber(target, None)
+                # за время загрузки выбор мог снова поменяться — не перетираем
+                if current_model["value"] == target:
+                    transcriber_holder["obj"] = obj
+                print(f"[+] Model ready: {target.split('/')[-1]}")
             except Exception as e:
                 print(f"[!] Model load error: {e}", file=sys.stderr)
             finally:
@@ -598,6 +611,15 @@ def run_app(args):
     LANG_FLAGS = {None: "🌐", "ru": "", "uk": "🇺🇦", "en": "🇬🇧"}
     LANG_NAMES = {None: "Auto", "ru": "Russian", "uk": "Ukrainian", "en": "English"}
 
+    # модели для подменю «Model» (только для движка mlx).
+    # порядок = от быстрой/рекомендованной к более медленной/точной.
+    MLX_MODELS = [
+        ("⚡ Turbo — fast (recommended)", "mlx-community/whisper-large-v3-turbo"),
+        ("🎯 Large v3 — most accurate", "mlx-community/whisper-large-v3-mlx"),
+        ("Medium — balanced", "mlx-community/whisper-medium-mlx"),
+        ("Small — fastest", "mlx-community/whisper-small-mlx"),
+    ]
+
     class VoiceTypeApp(rumps.App):
         def __init__(self):
             super().__init__("Voice Type", title="🎙", quit_button=None)
@@ -613,9 +635,31 @@ def run_app(args):
                 item.state = 1 if code == current_lang["value"] else 0
                 self._lang_items[code] = item
 
+            # подменю «Model» (только для mlx — переключение на лету).
+            # для faster-движка оставляем статичную подпись.
+            self._model_items = {}
+            model_menu_entry = None
+            if args.engine == "mlx":
+                entries = list(MLX_MODELS)
+                known = {repo for _, repo in entries}
+                # если запущены с моделью не из списка — добавим её первой
+                if current_model["value"] not in known:
+                    entries.insert(
+                        0, (current_model["value"].split("/")[-1], current_model["value"])
+                    )
+                for label, repo in entries:
+                    item = rumps.MenuItem(label, callback=self._make_model_setter(repo))
+                    item.state = 1 if repo == current_model["value"] else 0
+                    self._model_items[repo] = item
+                model_menu_entry = ("Model", list(self._model_items.values()))
+            else:
+                model_menu_entry = rumps.MenuItem(
+                    f"Model: {current_model['value'].split('/')[-1]}"
+                )
+
             self.menu = [
                 rumps.MenuItem(f"Hotkey: {args.hotkey}"),
-                rumps.MenuItem(f"Model: {args.model.split('/')[-1]}"),
+                model_menu_entry,
                 None,
                 ("Language", list(self._lang_items.values())),
                 None,
@@ -634,6 +678,23 @@ def run_app(args):
                 for c, it in self._lang_items.items():
                     it.state = 1 if c == code else 0
                 print(f"[i] Language set: {LANG_NAMES[code]}")
+            return setter
+
+        def _make_model_setter(self, repo):
+            def setter(_):
+                if repo == current_model["value"]:
+                    return
+                current_model["value"] = repo
+                # сброс галочек
+                for r, it in self._model_items.items():
+                    it.state = 1 if r == repo else 0
+                name = repo.split("/")[-1]
+                print(f"[i] Model set: {name}")
+                # сбрасываем текущий транскрайбер — следующая диктовка
+                # подхватит новую модель (для MLX веса грузятся лениво).
+                transcriber_holder["obj"] = None
+                get_transcriber()
+                notify("Voice Type", f"Model → {name}")
             return setter
 
         def _on_tick(self, _):

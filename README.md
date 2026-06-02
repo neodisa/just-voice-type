@@ -10,6 +10,7 @@ Hold Right Option, speak, release — your text is pasted wherever the cursor is
 - 🎙 **Menubar icon** with live status (idle, REC, processing, paused)
 - ⌨️ **Push-to-talk** on any system key: Right Option (default), Fn, F13–F20, etc.
 - 🧠 **MLX Whisper** (default `large-v3`) — fast on Apple Silicon. Falls back to `faster-whisper` on CPU.
+- 🔀 **Switch models from the menu** — pick `large-v3-turbo` (fast, recommended), `large-v3`, `medium`, or `small` on the fly, no restart. The next dictation uses the new model.
 - 📋 **Auto-paste** of recognized text via clipboard + `Cmd+V`, with original clipboard restored
 - 🔔 macOS sounds on start/stop, optional notifications
 - 🚀 **Autostart** as a LaunchAgent — the icon shows up right after login
@@ -97,13 +98,25 @@ tail -f voice_type.err.log
 
 ## Alternative models
 
+The fastest way is the **Model** submenu in the 🎙 menubar icon — switch models live, no restart:
+
+| Model | Notes |
+|---|---|
+| ⚡ `large-v3-turbo` | Fast, near-`large-v3` quality. **Recommended for speed.** (~1.5 GB) |
+| 🎯 `large-v3` | Most accurate, slowest. Default on startup. (~3 GB) |
+| `medium` | Balanced. |
+| `small` | Fastest, less accurate (weak for non-English). |
+
+The first dictation on a freshly picked model downloads it from HuggingFace; after that it's served from cache (`~/.cache/huggingface/`) and switching is instant.
+
+You can also pin a model at launch via the CLI:
+
 ```bash
+python3 voice_type.py --model mlx-community/whisper-large-v3-turbo    # fast, recommended
 python3 voice_type.py --model mlx-community/whisper-medium-mlx        # faster, slightly less accurate
 python3 voice_type.py --model mlx-community/whisper-small-mlx         # even faster
 python3 voice_type.py --engine faster --model large-v3                # CPU faster-whisper fallback
 ```
-
-Models are downloaded from HuggingFace on first use (1–3 GB depending on size) and cached in `~/.cache/huggingface/`.
 
 ## Troubleshooting
 
