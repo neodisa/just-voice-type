@@ -31,6 +31,9 @@ import wave
 from dataclasses import dataclass
 from typing import Optional
 
+import config
+import languages
+
 SAMPLE_RATE = 16_000
 CHANNELS = 1
 SAMPLE_WIDTH = 2
@@ -602,14 +605,30 @@ def run_app(args):
     last_text = {"value": ""}
     done_until = {"ts": 0.0}  # до какого момента показывать «✓ в буфере» в menubar
 
-    # выбранный язык. None = auto, иначе 'ru' / 'uk' / 'en'
-    # стартовое значение берётся из args.lang ('auto' → None)
-    initial_lang = None if args.lang.lower() == "auto" else args.lang.lower()
-    current_lang = {"value": initial_lang}
+    # ── настройки из конфига (язык/избранное/хоткей переживают перезапуск) ──
+    cfg = config.load()
+    config_existed = os.path.exists(config.config_path())
+    if not config_existed:
+        # первый запуск: засеваем конфиг текущими CLI-флагами и сохраняем
+        cfg["active_language"] = (
+            None if args.lang.lower() == "auto" else args.lang.lower()
+        )
+        cfg["hotkey"] = args.hotkey
+        config.save(cfg)
+        cfg = config.load()
 
-    # эмодзи флажки для menubar (компактные)
-    LANG_FLAGS = {None: "🌐", "ru": "", "uk": "🇺🇦", "en": "🇬🇧"}
-    LANG_NAMES = {None: "Auto", "ru": "Russian", "uk": "Ukrainian", "en": "English"}
+    favorites = {"value": list(cfg["favorite_languages"])}
+    current_lang = {"value": cfg["active_language"]}  # None = auto
+    current_hotkey = {"value": cfg["hotkey"]}
+
+    def persist():
+        config.save(
+            {
+                "favorite_languages": favorites["value"],
+                "active_language": current_lang["value"],
+                "hotkey": current_hotkey["value"],
+            }
+        )
 
     # модели для подменю «Model» (только для движка mlx).
     # порядок = от быстрой/рекомендованной к более медленной/точной.
@@ -618,6 +637,21 @@ def run_app(args):
         ("🎯 Large v3 — most accurate", "mlx-community/whisper-large-v3-mlx"),
         ("Medium — balanced", "mlx-community/whisper-medium-mlx"),
         ("Small — fastest", "mlx-community/whisper-small-mlx"),
+    ]
+
+    # пресеты хоткея для подменю «Hotkey». None = разделитель.
+    # имена должны быть понятны parse_hotkey().
+    HOTKEY_PRESETS = [
+        ("Right Option", "right_option"),
+        ("Left Option", "left_option"),
+        ("Fn", "fn"),
+        ("Right Command", "right_cmd"),
+        ("Left Command", "left_cmd"),
+        ("Right Control", "right_ctrl"),
+        ("Right Shift", "right_shift"),
+        None,
+        ("F13", "f13"), ("F14", "f14"), ("F15", "f15"), ("F16", "f16"),
+        ("F17", "f17"), ("F18", "f18"), ("F19", "f19"),
     ]
 
     class VoiceTypeApp(rumps.App):
@@ -784,7 +818,18 @@ def run_app(args):
 
     threading.Thread(target=worker, daemon=True).start()
 
-    hotkey_obj_holder = {"key": parse_hotkey(args.hotkey)}
+    def _resolve_hotkey(name):
+        try:
+            return parse_hotkey(name)
+        except ValueError:
+            print(
+                f"[!] unknown hotkey {name!r}; falling back to right_option",
+                file=sys.stderr,
+            )
+            current_hotkey["value"] = "right_option"
+            return parse_hotkey("right_option")
+
+    hotkey_obj_holder = {"key": _resolve_hotkey(current_hotkey["value"])}
     is_down = {"v": False}
 
     def on_press(key):
