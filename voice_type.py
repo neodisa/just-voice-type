@@ -657,61 +657,120 @@ def run_app(args):
     class VoiceTypeApp(rumps.App):
         def __init__(self):
             super().__init__("Voice Type", title="🎙", quit_button=None)
-
-            # подменю «Язык»
-            self._lang_items = {}
-            for code in (None, "uk", "en", "ru"):
-                item = rumps.MenuItem(
-                    f"{LANG_FLAGS[code]} {LANG_NAMES[code]}".strip(),
-                    callback=self._make_lang_setter(code),
-                )
-                # отметим текущий
-                item.state = 1 if code == current_lang["value"] else 0
-                self._lang_items[code] = item
-
-            # подменю «Model» (только для mlx — переключение на лету).
-            # для faster-движка оставляем статичную подпись.
-            self._model_items = {}
-            model_menu_entry = None
-            if args.engine == "mlx":
-                entries = list(MLX_MODELS)
-                known = {repo for _, repo in entries}
-                # если запущены с моделью не из списка — добавим её первой
-                if current_model["value"] not in known:
-                    entries.insert(
-                        0, (current_model["value"].split("/")[-1], current_model["value"])
-                    )
-                for label, repo in entries:
-                    item = rumps.MenuItem(label, callback=self._make_model_setter(repo))
-                    item.state = 1 if repo == current_model["value"] else 0
-                    self._model_items[repo] = item
-                model_menu_entry = ("Model", list(self._model_items.values()))
-            else:
-                model_menu_entry = rumps.MenuItem(
-                    f"Model: {current_model['value'].split('/')[-1]}"
-                )
-
-            self.menu = [
-                rumps.MenuItem(f"Hotkey: {args.hotkey}"),
-                model_menu_entry,
-                None,
-                ("Language", list(self._lang_items.values())),
-                None,
-                rumps.MenuItem("Pause (disable hotkey)", callback=self.toggle_enabled),
-                rumps.MenuItem("Copy last text", callback=self.copy_last),
-                None,
-                rumps.MenuItem("Quit", callback=self.quit_app),
-            ]
+            self._build_menu()
             self._timer = rumps.Timer(self._on_tick, 0.3)
             self._timer.start()
 
-        def _make_lang_setter(self, code):
+        # ── построение меню из текущего состояния ──────────────────────────
+        def _build_menu(self):
+            self.menu.clear()
+            self.menu.update(
+                [
+                    self._hotkey_menu(),
+                    self._model_menu(),
+                    None,
+                    self._language_menu(),
+                    None,
+                    rumps.MenuItem(
+                        "Enable hotkey"
+                        if not enabled["value"]
+                        else "Pause (disable hotkey)",
+                        callback=self.toggle_enabled,
+                    ),
+                    rumps.MenuItem("Copy last text", callback=self.copy_last),
+                    None,
+                    rumps.MenuItem("Quit", callback=self.quit_app),
+                ]
+            )
+
+        def _hotkey_menu(self):
+            items = []
+            for preset in HOTKEY_PRESETS:
+                if preset is None:
+                    items.append(None)
+                    continue
+                label, name = preset
+                it = rumps.MenuItem(label, callback=self._make_hotkey_setter(name))
+                it.state = 1 if name == current_hotkey["value"] else 0
+                items.append(it)
+            return ("Hotkey", items)
+
+        def _model_menu(self):
+            # поведение модели не меняется: выбор только в памяти, не персистим
+            if args.engine != "mlx":
+                return rumps.MenuItem(
+                    f"Model: {current_model['value'].split('/')[-1]}"
+                )
+            entries = list(MLX_MODELS)
+            known = {repo for _, repo in entries}
+            if current_model["value"] not in known:
+                entries.insert(
+                    0,
+                    (current_model["value"].split("/")[-1], current_model["value"]),
+                )
+            items = []
+            for label, repo in entries:
+                it = rumps.MenuItem(label, callback=self._make_model_setter(repo))
+                it.state = 1 if repo == current_model["value"] else 0
+                items.append(it)
+            return ("Model", items)
+
+        def _language_menu(self):
+            items = []
+            # верхний блок: Auto + избранные (+ активный), активный отмечен
+            for code in languages.top_section_codes(
+                favorites["value"], current_lang["value"]
+            ):
+                label = (
+                    "🌐 " + languages.display_name(code)
+                    if code is None
+                    else languages.display_name(code)
+                )
+                it = rumps.MenuItem(
+                    label, callback=self._make_active_lang_setter(code)
+                )
+                it.state = 1 if code == current_lang["value"] else 0
+                items.append(it)
+            items.append(None)
+            # подменю «All languages…»: все языки, галочка = в избранном
+            all_menu = rumps.MenuItem("All languages…")
+            favset = set(favorites["value"])
+            for code, name in languages.sorted_all():
+                it = rumps.MenuItem(
+                    name, callback=self._make_favorite_toggler(code)
+                )
+                it.state = 1 if code in favset else 0
+                all_menu.add(it)
+            items.append(all_menu)
+            return ("Language", items)
+
+        # ── сеттеры ────────────────────────────────────────────────────────
+        def _make_active_lang_setter(self, code):
             def setter(_):
                 current_lang["value"] = code
-                # сброс галочек
-                for c, it in self._lang_items.items():
-                    it.state = 1 if c == code else 0
-                print(f"[i] Language set: {LANG_NAMES[code]}")
+                persist()
+                self._build_menu()
+                print(f"[i] Language set: {languages.display_name(code)}")
+
+            return setter
+
+        def _make_favorite_toggler(self, code):
+            def setter(_):
+                favs = favorites["value"]
+                if code in favs:
+                    if code == current_lang["value"]:
+                        # активный язык нельзя спрятать
+                        notify(
+                            "Voice Type",
+                            f"{languages.display_name(code)} is active — keeping it",
+                        )
+                        return
+                    favs.remove(code)
+                else:
+                    favs.append(code)
+                persist()
+                self._build_menu()
+
             return setter
 
         def _make_model_setter(self, repo):
@@ -719,18 +778,43 @@ def run_app(args):
                 if repo == current_model["value"]:
                     return
                 current_model["value"] = repo
-                # сброс галочек
-                for r, it in self._model_items.items():
-                    it.state = 1 if r == repo else 0
                 name = repo.split("/")[-1]
                 print(f"[i] Model set: {name}")
-                # сбрасываем текущий транскрайбер — следующая диктовка
-                # подхватит новую модель (для MLX веса грузятся лениво).
+                # следующая диктовка подхватит новую модель (MLX грузит лениво)
                 transcriber_holder["obj"] = None
                 get_transcriber()
+                self._build_menu()
                 notify("Voice Type", f"Model → {name}")
+
             return setter
 
+        def _make_hotkey_setter(self, name):
+            def setter(_):
+                if name == current_hotkey["value"]:
+                    return
+                try:
+                    new_key = parse_hotkey(name)
+                except ValueError:
+                    notify("Voice Type", f"Unsupported hotkey: {name}")
+                    return
+                # если прямо сейчас идёт запись на старой клавише — чисто стопаем
+                if is_down["v"]:
+                    is_down["v"] = False
+                    try:
+                        recorder.stop()
+                    except Exception:
+                        pass
+                    state["value"] = "idle"
+                current_hotkey["value"] = name
+                hotkey_obj_holder["key"] = new_key
+                persist()
+                self._build_menu()
+                print(f"[i] Hotkey set: {name}")
+                notify("Voice Type", f"Hotkey → {name}")
+
+            return setter
+
+        # ── статус-иконка и действия ────────────────────────────────────────
         def _on_tick(self, _):
             now = time.time()
             if state["value"] == "recording":
@@ -742,17 +826,13 @@ def run_app(args):
                 dots = "." * (int(now * 2) % 4)
                 self.title = f"⏳ transcribing{dots}"
             elif now < done_until["ts"]:
-                # show "✓ copied" for 2 seconds after transcription
                 self.title = "✓ copied"
             else:
-                # только микрофон, без лишних иконок
                 self.title = "🎙" if enabled["value"] else "🚫"
 
-        def toggle_enabled(self, sender):
+        def toggle_enabled(self, _):
             enabled["value"] = not enabled["value"]
-            sender.title = (
-                "Enable hotkey" if not enabled["value"] else "Pause (disable hotkey)"
-            )
+            self._build_menu()
 
         def copy_last(self, _):
             if last_text["value"]:
