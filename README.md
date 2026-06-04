@@ -8,13 +8,14 @@ Hold Right Option, speak, release — your text is pasted wherever the cursor is
 ## Features
 
 - 🎙 **Menubar icon** with live status (idle, REC, processing, paused)
-- ⌨️ **Push-to-talk** on any system key: Right Option (default), Fn, F13–F20, etc.
+- ⌨️ **Push-to-talk** on any system key — switch it from the **Hotkey** menu (Right Option, Left Option, Fn, Cmd, Ctrl, Shift, F13–F19), applied instantly, no restart.
 - 🧠 **MLX Whisper** (default `large-v3`) — fast on Apple Silicon. Falls back to `faster-whisper` on CPU.
 - 🔀 **Switch models from the menu** — pick `large-v3-turbo` (fast, recommended), `large-v3`, `medium`, or `small` on the fly, no restart. The next dictation uses the new model.
+- 🌐 **Pick the language from the menu** — your working ("favorite") languages plus **Auto** sit at the top; choose one to make it active. **All languages…** lists the full Whisper set (~99) where you check which languages to keep as favorites.
+- 💾 **Settings persist** across restarts (favorite languages, active language, hotkey) in `~/.config/just-voice-type/config.json`.
 - 📋 **Auto-paste** of recognized text via clipboard + `Cmd+V`, with original clipboard restored
 - 🔔 macOS sounds on start/stop, optional notifications
 - 🚀 **Autostart** as a LaunchAgent — the icon shows up right after login
-- 🌐 Language-agnostic: pass `--lang en`, `--lang ru`, `--lang de`, etc.
 
 ## Requirements
 
@@ -64,6 +65,8 @@ A 🎙 icon appears in the menubar. Hold Right Option — a capsule with a pulsi
 | `--no-paste` | Don't paste, only copy to clipboard. |
 | `--no-restore-clipboard` | Don't restore the previous clipboard contents. |
 | `--notify` | Show a macOS notification with the recognized text. |
+
+`--lang` and `--hotkey` only **seed** the config on the very first run. After that, `~/.config/just-voice-type/config.json` (driven by the Language and Hotkey menus) is authoritative and the flags are ignored. Delete that file to reset to defaults.
 
 There's also a headless CLI version, `voice_type_cli.py`, with the same flags and no menubar UI.
 
