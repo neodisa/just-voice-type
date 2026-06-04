@@ -907,6 +907,7 @@ def run_app(args):
                 file=sys.stderr,
             )
             current_hotkey["value"] = "right_option"
+            persist()  # вычистить битое значение из конфига
             return parse_hotkey("right_option")
 
     hotkey_obj_holder = {"key": _resolve_hotkey(current_hotkey["value"])}
@@ -946,7 +947,10 @@ def run_app(args):
 
     get_transcriber()
 
-    print(f"[+] Voice Type started. Hotkey: {args.hotkey}. Model: {args.model}")
+    print(
+        f"[+] Voice Type started. Hotkey: {current_hotkey['value']}. "
+        f"Model: {current_model['value']}"
+    )
     print("[+] Look for the 🎙 icon in the menubar (top-right).")
 
     # Работаем как menubar-утилита (accessory): без иконки в Dock и без меню

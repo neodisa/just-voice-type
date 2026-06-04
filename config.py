@@ -10,7 +10,7 @@ import json
 import os
 import sys
 import tempfile
-from typing import Any, Optional
+from typing import Any
 
 import languages
 
@@ -24,6 +24,14 @@ DEFAULTS = {
 }
 
 
+def _defaults_copy() -> "dict[str, Any]":
+    return {
+        "favorite_languages": list(DEFAULTS["favorite_languages"]),
+        "active_language": DEFAULTS["active_language"],
+        "hotkey": DEFAULTS["hotkey"],
+    }
+
+
 def config_dir() -> str:
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
     return os.path.join(base, APP_DIR_NAME)
@@ -34,11 +42,7 @@ def config_path() -> str:
 
 
 def _validate(raw: Any) -> "dict[str, Any]":
-    cfg = {
-        "favorite_languages": list(DEFAULTS["favorite_languages"]),
-        "active_language": DEFAULTS["active_language"],
-        "hotkey": DEFAULTS["hotkey"],
-    }
+    cfg = _defaults_copy()
     if not isinstance(raw, dict):
         return cfg
 
@@ -69,18 +73,10 @@ def load() -> "dict[str, Any]":
         with open(path, "r", encoding="utf-8") as f:
             raw = json.load(f)
     except FileNotFoundError:
-        return {
-            "favorite_languages": list(DEFAULTS["favorite_languages"]),
-            "active_language": DEFAULTS["active_language"],
-            "hotkey": DEFAULTS["hotkey"],
-        }
+        return _defaults_copy()
     except (json.JSONDecodeError, OSError) as e:
         print(f"[!] config load failed ({e}); using defaults", file=sys.stderr)
-        return {
-            "favorite_languages": list(DEFAULTS["favorite_languages"]),
-            "active_language": DEFAULTS["active_language"],
-            "hotkey": DEFAULTS["hotkey"],
-        }
+        return _defaults_copy()
     return _validate(raw)
 
 
