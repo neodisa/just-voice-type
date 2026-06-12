@@ -21,7 +21,11 @@ DEFAULTS = {
     "favorite_languages": ["ru", "uk", "en"],
     "active_language": None,
     "hotkey": "right_option",
+    "smart_mode": "prompt",
+    "vocabulary": [],
 }
+
+SMART_MODES = ("raw", "clean", "prompt")
 
 
 def _defaults_copy() -> "dict[str, Any]":
@@ -29,6 +33,8 @@ def _defaults_copy() -> "dict[str, Any]":
         "favorite_languages": list(DEFAULTS["favorite_languages"]),
         "active_language": DEFAULTS["active_language"],
         "hotkey": DEFAULTS["hotkey"],
+        "smart_mode": DEFAULTS["smart_mode"],
+        "vocabulary": list(DEFAULTS["vocabulary"]),
     }
 
 
@@ -63,6 +69,18 @@ def _validate(raw: Any) -> "dict[str, Any]":
     hk = raw.get("hotkey")
     if isinstance(hk, str) and hk.strip():
         cfg["hotkey"] = hk.strip()
+
+    mode = raw.get("smart_mode")
+    if isinstance(mode, str) and mode in SMART_MODES:
+        cfg["smart_mode"] = mode
+    else:
+        cfg["smart_mode"] = DEFAULTS["smart_mode"]
+
+    vocab = raw.get("vocabulary")
+    if isinstance(vocab, list):
+        cfg["vocabulary"] = [
+            v.strip() for v in vocab if isinstance(v, str) and v.strip()
+        ]
 
     return cfg
 
