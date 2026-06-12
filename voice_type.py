@@ -33,6 +33,7 @@ from typing import Optional
 
 import config
 import languages
+import polish
 
 SAMPLE_RATE = 16_000
 CHANNELS = 1
@@ -633,6 +634,9 @@ def run_app(args):
     favorites = {"value": list(cfg["favorite_languages"])}
     current_lang = {"value": cfg["active_language"]}  # None = auto
     current_hotkey = {"value": cfg["hotkey"]}
+    smart_mode = {"value": cfg["smart_mode"]}
+    vocabulary = {"value": list(cfg["vocabulary"])}
+    polisher = polish.Polisher()
 
     def persist():
         config.save(
@@ -640,6 +644,8 @@ def run_app(args):
                 "favorite_languages": favorites["value"],
                 "active_language": current_lang["value"],
                 "hotkey": current_hotkey["value"],
+                "smart_mode": smart_mode["value"],
+                "vocabulary": vocabulary["value"],
             }
         )
 
