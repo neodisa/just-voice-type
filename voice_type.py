@@ -560,6 +560,15 @@ def ensure_accessibility(prompt: bool = True) -> bool:
         return True  # не блокируем запуск
 
 
+def polish_text_safe(polisher, text, mode, language, vocabulary):
+    """Polish wrapper that can never raise — returns raw text on any failure."""
+    try:
+        return polisher.polish(text, mode, language=language, vocabulary=vocabulary)
+    except Exception as e:
+        print(f"[!] polish_text_safe: {e}", file=sys.stderr)
+        return text
+
+
 def run_app(args):
     rumps = _require("rumps")
     keyboard = _require("pynput.keyboard", "pynput").keyboard  # type: ignore
@@ -881,12 +890,29 @@ def run_app(args):
                     notify("Voice Type", "Model not loaded")
                     continue
                 t0 = time.time()
-                # передаём текущий выбранный язык (None = auto)
-                text = tr.transcribe(wav_path, language=current_lang["value"])
+                vocab_prompt = ", ".join(vocabulary["value"]) or None
+                # передаём текущий выбранный язык (None = auto) и словарь-bias
+                text = tr.transcribe(
+                    wav_path,
+                    language=current_lang["value"],
+                    initial_prompt=vocab_prompt,
+                )
                 dt = time.time() - t0
                 if text and is_hallucination(text):
                     print(f"[·] ({dt:.1f}s) Whisper hallucination, skipping: {text!r}")
                     text = ""
+                if text and smart_mode["value"] != "raw":
+                    if not polisher.is_loaded():
+                        notify("Voice Type", "Загружаю LLM… (первый раз)")
+                    t1 = time.time()
+                    text = polish_text_safe(
+                        polisher,
+                        text,
+                        smart_mode["value"],
+                        current_lang["value"],
+                        vocabulary["value"],
+                    )
+                    print(f"[i] polished ({smart_mode['value']}, {time.time() - t1:.1f}s)")
                 if text:
                     print(f"[✓] ({dt:.1f}s) copied: {text}")
                     last_text["value"] = text
