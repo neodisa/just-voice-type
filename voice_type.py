@@ -371,7 +371,12 @@ class MLXTranscriber:
             )
         return a.astype(_np.float32)
 
-    def transcribe(self, wav_path: str, language: Optional[str] = None) -> str:
+    def transcribe(
+        self,
+        wav_path: str,
+        language: Optional[str] = None,
+        initial_prompt: Optional[str] = None,
+    ) -> str:
         # язык можно переопределить на каждый запрос
         lang = language if language is not None else self.language
         kwargs = dict(
@@ -380,6 +385,8 @@ class MLXTranscriber:
         )
         if lang:
             kwargs["language"] = lang
+        if initial_prompt:
+            kwargs["initial_prompt"] = initial_prompt
         audio = self._load_audio(wav_path)
         result = self._transcribe(audio, **kwargs)
         # печатаем определённый язык в лог (полезно для дебага)
@@ -400,13 +407,19 @@ class FasterWhisperTranscriber:
         self.model = model
         self.language = language
 
-    def transcribe(self, wav_path: str, language: Optional[str] = None) -> str:
+    def transcribe(
+        self,
+        wav_path: str,
+        language: Optional[str] = None,
+        initial_prompt: Optional[str] = None,
+    ) -> str:
         lang = language if language is not None else self.language
         segments, info = self._model.transcribe(
             wav_path,
             language=lang,  # None = auto-detect
             vad_filter=True,
             beam_size=5,
+            initial_prompt=initial_prompt or None,
         )
         if info and not lang:
             print(f"[i] language detected: {info.language}")
