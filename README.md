@@ -22,9 +22,9 @@ Hold Right Option, speak, release — your text is pasted wherever the cursor is
 
 The **Smart** menu controls a local LLM pass that runs *after* Whisper, on the recognized text:
 
-- **Raw** — no post-processing; you get Whisper's verbatim output instantly. Use it for names, passwords, or exact quotes.
+- **Raw** *(default)* — no post-processing; you get Whisper's verbatim output instantly. Use it for names, passwords, or exact quotes. This is the default so updating users keep the old behavior and nothing downloads until you opt in.
 - **Clean** — removes filler ("uh", "you know"), collapses self-corrections, fixes punctuation and capitalization. Words and meaning are preserved.
-- **Prompt** *(default)* — rewrites a rambly dictation into a single clear instruction for an AI assistant, fixing obviously misheard words along the way.
+- **Prompt** — rewrites a rambly dictation into a single clear instruction for an AI assistant, fixing obviously misheard words along the way.
 
 Notes:
 

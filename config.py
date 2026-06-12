@@ -21,7 +21,9 @@ DEFAULTS = {
     "favorite_languages": ["ru", "uk", "en"],
     "active_language": None,
     "hotkey": "right_option",
-    "smart_mode": "prompt",
+    # Default Raw keeps verbatim Whisper output (backward-compatible, no model
+    # download). Users opt into Clean/Prompt via the Smart menu.
+    "smart_mode": "raw",
     "vocabulary": [],
 }
 

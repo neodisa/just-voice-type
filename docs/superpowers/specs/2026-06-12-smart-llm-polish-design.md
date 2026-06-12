@@ -88,10 +88,10 @@
 
 Расширить `config.py`:
 
-- `DEFAULTS` += `"smart_mode": "prompt"`, `"vocabulary": []`.
+- `DEFAULTS` += `"smart_mode": "raw"`, `"vocabulary": []`. (Изначально проектировался дефолт `prompt`; для публичного релиза v0.4.0 изменён на `raw` ради обратной совместимости — LLM включается опционально через меню.)
 - `_defaults_copy()` — добавить обе записи (копия списка для `vocabulary`).
 - `_validate()`:
-  - `smart_mode`: строка из `{"raw","clean","prompt"}`, иначе дефолт `"prompt"`.
+  - `smart_mode`: строка из `{"raw","clean","prompt"}`, иначе дефолт `"raw"`.
   - `vocabulary`: список непустых строк, прочее отбросить.
 - `persist()` в `voice_type.py` — добавить оба поля в сохраняемый dict.
 

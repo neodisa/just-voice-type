@@ -63,7 +63,7 @@ class TestConfig(unittest.TestCase):
 
     def test_defaults_include_smart_mode_and_vocabulary(self):
         cfg = config.load()
-        self.assertEqual(cfg["smart_mode"], "prompt")
+        self.assertEqual(cfg["smart_mode"], "raw")
         self.assertEqual(cfg["vocabulary"], [])
 
     def test_smart_mode_roundtrip(self):
@@ -72,9 +72,9 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(cfg["smart_mode"], "clean")
         self.assertEqual(cfg["vocabulary"], ["Anthropic", "Qwen"])
 
-    def test_invalid_smart_mode_falls_back_to_prompt(self):
+    def test_invalid_smart_mode_falls_back_to_default(self):
         config.save({"smart_mode": "nonsense"})
-        self.assertEqual(config.load()["smart_mode"], "prompt")
+        self.assertEqual(config.load()["smart_mode"], "raw")
 
     def test_vocabulary_drops_non_strings_and_blanks(self):
         config.save({"vocabulary": ["ok", "", "  ", 42, None, "Claude"]})
