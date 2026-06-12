@@ -48,3 +48,83 @@ class TestMaxTokens(unittest.TestCase):
     def test_has_ceiling(self):
         huge = "word " * 5000
         self.assertLessEqual(polish._max_tokens_for(huge), 512)
+
+
+class _FakeTokenizer:
+    def apply_chat_template(self, messages, add_generation_prompt=True):
+        # echo a deterministic prompt string built from messages
+        return "PROMPT::" + messages[-1]["content"]
+
+
+class TestPolisher(unittest.TestCase):
+    def _polisher(self, gen):
+        return polish.Polisher(
+            model="fake",
+            load_fn=lambda m: ("FAKE_MODEL", _FakeTokenizer()),
+            generate_fn=gen,
+        )
+
+    def test_raw_mode_returns_input_without_loading(self):
+        calls = {"load": 0, "gen": 0}
+
+        def load_fn(m):
+            calls["load"] += 1
+            return ("M", _FakeTokenizer())
+
+        def gen_fn(*a, **k):
+            calls["gen"] += 1
+            return "should not run"
+
+        p = polish.Polisher(model="fake", load_fn=load_fn, generate_fn=gen_fn)
+        self.assertEqual(p.polish("verbatim text", "raw"), "verbatim text")
+        self.assertEqual(calls["load"], 0)
+        self.assertEqual(calls["gen"], 0)
+        self.assertFalse(p.is_loaded())
+
+    def test_empty_text_returns_input_without_loading(self):
+        p = self._polisher(lambda *a, **k: "x")
+        self.assertEqual(p.polish("   ", "prompt"), "   ")
+        self.assertFalse(p.is_loaded())
+
+    def test_clean_mode_calls_model_and_cleans_output(self):
+        p = self._polisher(lambda *a, **k: '  "cleaned text"  ')
+        out = p.polish("ну эээ привет", "clean", language="ru")
+        self.assertEqual(out, "cleaned text")
+        self.assertTrue(p.is_loaded())
+
+    def test_prompt_passed_through_chat_template(self):
+        seen = {}
+
+        def gen_fn(model, tokenizer, prompt=None, **k):
+            seen["prompt"] = prompt
+            return "ok"
+
+        p = self._polisher(gen_fn)
+        p.polish("сделай скрипт", "prompt")
+        self.assertTrue(seen["prompt"].startswith("PROMPT::"))
+        self.assertIn("сделай скрипт", seen["prompt"])
+
+    def test_model_error_falls_back_to_raw_text(self):
+        def boom(*a, **k):
+            raise RuntimeError("mlx blew up")
+
+        p = self._polisher(boom)
+        self.assertEqual(p.polish("original", "prompt"), "original")
+
+    def test_empty_generation_falls_back_to_raw_text(self):
+        p = self._polisher(lambda *a, **k: "   ")
+        self.assertEqual(p.polish("original", "clean"), "original")
+
+    def test_model_loaded_only_once(self):
+        calls = {"load": 0}
+
+        def load_fn(m):
+            calls["load"] += 1
+            return ("M", _FakeTokenizer())
+
+        p = polish.Polisher(
+            model="fake", load_fn=load_fn, generate_fn=lambda *a, **k: "out"
+        )
+        p.polish("a", "clean")
+        p.polish("b", "clean")
+        self.assertEqual(calls["load"], 1)

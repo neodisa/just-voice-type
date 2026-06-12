@@ -79,3 +79,62 @@ def _clean_output(raw: str) -> str:
 def _max_tokens_for(text: str) -> int:
     words = len(text.split())
     return max(64, min(512, words * 3))
+
+
+class Polisher:
+    """On-device LLM polisher. Lazy-loads weights on first clean/prompt call.
+
+    `load_fn` / `generate_fn` are injectable for tests; in production they
+    default to `mlx_lm.load` / `mlx_lm.generate`.
+    """
+
+    def __init__(self, model: str = POLISH_MODEL, load_fn=None, generate_fn=None):
+        self.model_id = model
+        self._load_fn = load_fn
+        self._generate_fn = generate_fn
+        self._model: Any = None
+        self._tokenizer: Any = None
+
+    def is_loaded(self) -> bool:
+        return self._model is not None
+
+    def _ensure_loaded(self) -> None:
+        if self._model is not None:
+            return
+        load_fn = self._load_fn
+        if load_fn is None:
+            from mlx_lm import load as load_fn  # type: ignore
+        self._model, self._tokenizer = load_fn(self.model_id)
+
+    def polish(
+        self,
+        text: str,
+        mode: str,
+        language: Optional[str] = None,
+        vocabulary=None,
+    ) -> str:
+        if mode == "raw" or not text or not text.strip():
+            return text
+        if mode not in ("clean", "prompt"):
+            return text
+        try:
+            self._ensure_loaded()
+            generate_fn = self._generate_fn
+            if generate_fn is None:
+                from mlx_lm import generate as generate_fn  # type: ignore
+            messages = build_messages(text, mode, language, vocabulary)
+            prompt = self._tokenizer.apply_chat_template(
+                messages, add_generation_prompt=True
+            )
+            out = generate_fn(
+                self._model,
+                self._tokenizer,
+                prompt=prompt,
+                max_tokens=_max_tokens_for(text),
+                temperature=0.1,
+            )
+            cleaned = _clean_output(out or "")
+            return cleaned or text
+        except Exception as e:  # never block paste
+            print(f"[!] polish failed ({e}); using raw text", file=sys.stderr)
+            return text
