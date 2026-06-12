@@ -682,6 +682,13 @@ def run_app(args):
         ("F17", "f17"), ("F18", "f18"), ("F19", "f19"),
     ]
 
+    # пресеты для подменю «Smart» (режим LLM-прохода)
+    SMART_PRESETS = [
+        ("Raw — verbatim Whisper", "raw"),
+        ("Clean — fix filler & punctuation", "clean"),
+        ("Prompt — restructure for AI", "prompt"),
+    ]
+
     class VoiceTypeApp(rumps.App):
         def __init__(self):
             super().__init__("Voice Type", title="🎙", quit_button=None)
@@ -696,6 +703,7 @@ def run_app(args):
                 [
                     self._hotkey_menu(),
                     self._model_menu(),
+                    self._smart_menu(),
                     None,
                     self._language_menu(),
                     None,
@@ -742,6 +750,18 @@ def run_app(args):
                 it.state = 1 if repo == current_model["value"] else 0
                 items.append(it)
             return ("Model", items)
+
+        def _smart_menu(self):
+            items = []
+            for label, mode in SMART_PRESETS:
+                it = rumps.MenuItem(label, callback=self._make_smart_setter(mode))
+                it.state = 1 if mode == smart_mode["value"] else 0
+                items.append(it)
+            items.append(None)
+            items.append(
+                rumps.MenuItem("Edit vocabulary…", callback=self.edit_vocabulary)
+            )
+            return ("Smart", items)
 
         def _language_menu(self):
             items = []
@@ -815,6 +835,27 @@ def run_app(args):
                 notify("Voice Type", f"Model → {name}")
 
             return setter
+
+        def _make_smart_setter(self, mode):
+            def setter(_):
+                if mode == smart_mode["value"]:
+                    return
+                smart_mode["value"] = mode
+                persist()
+                self._build_menu()
+                print(f"[i] Smart mode set: {mode}")
+                notify("Voice Type", f"Smart → {mode}")
+
+            return setter
+
+        def edit_vocabulary(self, _):
+            # словарь правится прямо в конфиг-файле; открываем его в редакторе
+            persist()  # на случай первого запуска — гарантируем, что файл есть
+            subprocess.Popen(["open", config.config_path()])
+            notify(
+                "Voice Type",
+                "Edit \"vocabulary\" in config.json, then re-pick a Smart mode",
+            )
 
         def _make_hotkey_setter(self, name):
             def setter(_):
