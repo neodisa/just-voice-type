@@ -12,10 +12,26 @@ Hold Right Option, speak, release — your text is pasted wherever the cursor is
 - 🧠 **MLX Whisper** (default `large-v3`) — fast on Apple Silicon. Falls back to `faster-whisper` on CPU.
 - 🔀 **Switch models from the menu** — pick `large-v3-turbo` (fast, recommended), `large-v3`, `medium`, or `small` on the fly, no restart. The next dictation uses the new model.
 - 🌐 **Pick the language from the menu** — your working ("favorite") languages plus **Auto** sit at the top; choose one to make it active. **All languages…** lists the full Whisper set (~99) where you check which languages to keep as favorites.
-- 💾 **Settings persist** across restarts (favorite languages, active language, hotkey) in `~/.config/just-voice-type/config.json`.
+- 🪄 **Smart modes** — pick **Raw** (verbatim), **Clean** (strip filler & fix punctuation), or **Prompt** (restructure your dictation into a clear instruction for an AI) from the **Smart** menu. Runs a small on-device LLM (`Qwen2.5-3B-Instruct-4bit` via `mlx_lm`) — still no cloud. Add domain terms via **Edit vocabulary…** so misheard names/jargon get fixed and bias Whisper itself.
+- 💾 **Settings persist** across restarts (favorite languages, active language, hotkey, smart mode, vocabulary) in `~/.config/just-voice-type/config.json`.
 - 📋 **Auto-paste** of recognized text via clipboard + `Cmd+V`, with original clipboard restored
 - 🔔 macOS sounds on start/stop, optional notifications
 - 🚀 **Autostart** as a LaunchAgent — the icon shows up right after login
+
+## Smart modes
+
+The **Smart** menu controls a local LLM pass that runs *after* Whisper, on the recognized text:
+
+- **Raw** — no post-processing; you get Whisper's verbatim output instantly. Use it for names, passwords, or exact quotes.
+- **Clean** — removes filler ("uh", "you know"), collapses self-corrections, fixes punctuation and capitalization. Words and meaning are preserved.
+- **Prompt** *(default)* — rewrites a rambly dictation into a single clear instruction for an AI assistant, fixing obviously misheard words along the way.
+
+Notes:
+
+- The LLM (`Qwen2.5-3B-Instruct-4bit`, ~2 GB) **downloads on the first Clean/Prompt dictation** and is then kept warm in memory. Raw never loads it.
+- It runs **fully on-device** via `mlx_lm` — no cloud, no API keys, consistent with the rest of the app.
+- Polishing **never blocks paste**: on any error or timeout it falls back to the raw Whisper text.
+- **Edit vocabulary…** opens `config.json`; add your recurring terms/names to the `vocabulary` list. They feed both Whisper's `initial_prompt` (so it mishears them less) and the LLM (so it corrects them from context).
 
 ## Requirements
 
