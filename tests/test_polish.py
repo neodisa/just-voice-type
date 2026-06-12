@@ -62,6 +62,7 @@ class TestPolisher(unittest.TestCase):
             model="fake",
             load_fn=lambda m: ("FAKE_MODEL", _FakeTokenizer()),
             generate_fn=gen,
+            sampler_fn=lambda temp=0.0, **k: f"sampler(temp={temp})",
         )
 
     def test_raw_mode_returns_input_without_loading(self):
@@ -123,8 +124,33 @@ class TestPolisher(unittest.TestCase):
             return ("M", _FakeTokenizer())
 
         p = polish.Polisher(
-            model="fake", load_fn=load_fn, generate_fn=lambda *a, **k: "out"
+            model="fake",
+            load_fn=load_fn,
+            generate_fn=lambda *a, **k: "out",
+            sampler_fn=lambda **k: "S",
         )
         p.polish("a", "clean")
         p.polish("b", "clean")
         self.assertEqual(calls["load"], 1)
+
+    def test_generate_called_with_sampler_not_temperature(self):
+        # Regression guard: mlx_lm's generate_step takes `sampler=`, not
+        # `temperature=`. This fake mirrors the REAL keyword-only signature so
+        # the suite fails loudly if polish ever passes `temperature` again.
+        captured = {}
+
+        def strict_generate(model, tokenizer, *, prompt, max_tokens, sampler):
+            captured["sampler"] = sampler
+            captured["max_tokens"] = max_tokens
+            return "polished"
+
+        p = polish.Polisher(
+            model="fake",
+            load_fn=lambda m: ("M", _FakeTokenizer()),
+            generate_fn=strict_generate,
+            sampler_fn=lambda temp=0.0, **k: f"sampler(temp={temp})",
+        )
+        out = p.polish("hello there friend", "clean")
+        self.assertEqual(out, "polished")
+        self.assertEqual(captured["sampler"], "sampler(temp=0.1)")
+        self.assertGreaterEqual(captured["max_tokens"], 64)

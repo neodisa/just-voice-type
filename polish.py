@@ -12,6 +12,8 @@ from typing import Any, Optional
 
 POLISH_MODEL = "mlx-community/Qwen2.5-3B-Instruct-4bit"
 MODES = ("raw", "clean", "prompt")
+# Low temperature: polishing should be faithful, not creative.
+POLISH_TEMP = 0.1
 
 _COMMON_RULES = (
     "You rewrite dictated speech. Hard rules: "
@@ -84,14 +86,22 @@ def _max_tokens_for(text: str) -> int:
 class Polisher:
     """On-device LLM polisher. Lazy-loads weights on first clean/prompt call.
 
-    `load_fn` / `generate_fn` are injectable for tests; in production they
-    default to `mlx_lm.load` / `mlx_lm.generate`.
+    `load_fn` / `generate_fn` / `sampler_fn` are injectable for tests; in
+    production they default to `mlx_lm.load` / `mlx_lm.generate` /
+    `mlx_lm.sample_utils.make_sampler`.
     """
 
-    def __init__(self, model: str = POLISH_MODEL, load_fn=None, generate_fn=None):
+    def __init__(
+        self,
+        model: str = POLISH_MODEL,
+        load_fn=None,
+        generate_fn=None,
+        sampler_fn=None,
+    ):
         self.model_id = model
         self._load_fn = load_fn
         self._generate_fn = generate_fn
+        self._sampler_fn = sampler_fn
         self._model: Any = None
         self._tokenizer: Any = None
 
@@ -122,6 +132,12 @@ class Polisher:
             generate_fn = self._generate_fn
             if generate_fn is None:
                 from mlx_lm import generate as generate_fn  # type: ignore
+            sampler_fn = self._sampler_fn
+            if sampler_fn is None:
+                # mlx_lm.generate forwards **kwargs to generate_step, which takes
+                # `sampler=`, NOT `temperature=` — passing temperature raises
+                # TypeError. Build a sampler instead.
+                from mlx_lm.sample_utils import make_sampler as sampler_fn  # type: ignore
             messages = build_messages(text, mode, language, vocabulary)
             prompt = self._tokenizer.apply_chat_template(
                 messages, add_generation_prompt=True
@@ -131,7 +147,7 @@ class Polisher:
                 self._tokenizer,
                 prompt=prompt,
                 max_tokens=_max_tokens_for(text),
-                temperature=0.1,
+                sampler=sampler_fn(temp=POLISH_TEMP),
             )
             cleaned = _clean_output(out or "")
             return cleaned or text

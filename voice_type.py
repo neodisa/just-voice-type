@@ -648,13 +648,17 @@ def run_app(args):
     polisher = polish.Polisher()
 
     def persist():
+        # vocabulary is owned by the user via the config file (Edit vocabulary…),
+        # not by the menu. Re-read it from disk so menu-driven saves never clobber
+        # manual edits the user made in the file.
+        on_disk = config.load()
         config.save(
             {
                 "favorite_languages": favorites["value"],
                 "active_language": current_lang["value"],
                 "hotkey": current_hotkey["value"],
                 "smart_mode": smart_mode["value"],
-                "vocabulary": vocabulary["value"],
+                "vocabulary": on_disk["vocabulary"],
             }
         )
 
@@ -854,7 +858,7 @@ def run_app(args):
             subprocess.Popen(["open", config.config_path()])
             notify(
                 "Voice Type",
-                "Edit \"vocabulary\" in config.json, then re-pick a Smart mode",
+                "Edit the \"vocabulary\" list in config.json — applies on your next dictation",
             )
 
         def _make_hotkey_setter(self, name):
@@ -931,6 +935,8 @@ def run_app(args):
                     notify("Voice Type", "Model not loaded")
                     continue
                 t0 = time.time()
+                # подхватываем правки словаря из файла (Edit vocabulary…) на лету
+                vocabulary["value"] = config.load()["vocabulary"]
                 vocab_prompt = ", ".join(vocabulary["value"]) or None
                 # передаём текущий выбранный язык (None = auto) и словарь-bias
                 text = tr.transcribe(
