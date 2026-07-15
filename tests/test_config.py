@@ -80,6 +80,21 @@ class TestConfig(unittest.TestCase):
         config.save({"vocabulary": ["ok", "", "  ", 42, None, "Claude"]})
         self.assertEqual(config.load()["vocabulary"], ["ok", "Claude"])
 
+    def test_model_defaults_to_none(self):
+        self.assertIsNone(config.load()["model"])
+
+    def test_model_roundtrip(self):
+        config.save({"model": "mlx-community/whisper-large-v3-mlx"})
+        self.assertEqual(
+            config.load()["model"], "mlx-community/whisper-large-v3-mlx"
+        )
+
+    def test_model_junk_becomes_none(self):
+        config.save({"model": 42})
+        self.assertIsNone(config.load()["model"])
+        config.save({"model": "   "})
+        self.assertIsNone(config.load()["model"])
+
     def test_defaults_copy_isolates_vocabulary_list(self):
         cfg = config.load()
         cfg["vocabulary"].append("mutated")

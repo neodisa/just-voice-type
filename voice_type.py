@@ -647,8 +647,9 @@ def run_app(args):
 
     transcriber_holder: dict = {"obj": None, "loading": False}
 
-    # текущая выбранная модель (меняется из меню на лету)
-    current_model = {"value": args.model}
+    # текущая выбранная модель (меняется из меню, переживает перезапуск);
+    # значение подставляется ниже после чтения конфига
+    current_model = {"value": None}
 
     def get_transcriber():
         obj = transcriber_holder["obj"]
@@ -718,6 +719,13 @@ def run_app(args):
     favorites = {"value": list(cfg["favorite_languages"])}
     current_lang = {"value": cfg["active_language"]}  # None = auto
     current_hotkey = {"value": cfg["hotkey"]}
+    # модель: явный CLI-флаг → конфиг (выбор из меню) → точный large-v3.
+    # На Apple Silicon время диктовки почти не зависит от размера модели
+    # (доминирует фиксированный оверхед), поэтому по умолчанию — точность.
+    default_model = (
+        "mlx-community/whisper-large-v3-mlx" if args.engine == "mlx" else "large-v3"
+    )
+    current_model["value"] = args.model or cfg["model"] or default_model
     smart_mode = {"value": cfg["smart_mode"]}
     vocabulary = {"value": list(cfg["vocabulary"])}
     polisher = polish.Polisher()
@@ -740,14 +748,14 @@ def run_app(args):
                 "hotkey": current_hotkey["value"],
                 "smart_mode": smart_mode["value"],
                 "vocabulary": on_disk["vocabulary"],
+                "model": current_model["value"],
             }
         )
 
     # модели для подменю «Model» (только для движка mlx).
-    # порядок = от быстрой/рекомендованной к более медленной/точной.
     MLX_MODELS = [
-        ("⚡ Turbo — fast (recommended)", "mlx-community/whisper-large-v3-turbo"),
-        ("🎯 Large v3 — most accurate", "mlx-community/whisper-large-v3-mlx"),
+        ("🎯 Large v3 — most accurate (default)", "mlx-community/whisper-large-v3-mlx"),
+        ("⚡ Turbo — faster decode, weaker RU/UK", "mlx-community/whisper-large-v3-turbo"),
         ("Medium — balanced", "mlx-community/whisper-medium-mlx"),
         ("Small — fastest", "mlx-community/whisper-small-mlx"),
     ]
@@ -911,6 +919,7 @@ def run_app(args):
                 if repo == current_model["value"]:
                     return
                 current_model["value"] = repo
+                persist()  # выбор модели переживает перезапуск
                 name = repo.split("/")[-1]
                 print(f"[i] Model set: {name}")
                 # следующая диктовка подхватит новую модель (MLX грузит лениво)
@@ -1261,15 +1270,8 @@ def main():
     )
     args = ap.parse_args()
 
-    if args.model is None:
-        # turbo: ~5-6x быстрее large-v3 при почти той же точности
-        # (4 decoder-слоя вместо 32); мультиязычность/код-свитчинг те же
-        args.model = (
-            "mlx-community/whisper-large-v3-turbo"
-            if args.engine == "mlx"
-            else "large-v3-turbo"
-        )
-
+    # args.model остаётся None, если флаг не передан: run_app подставит
+    # модель из конфига (выбор в меню) или дефолтную large-v3
     run_app(args)
 
 

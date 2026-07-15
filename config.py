@@ -25,6 +25,8 @@ DEFAULTS = {
     # download). Users opt into Clean/Prompt via the Smart menu.
     "smart_mode": "raw",
     "vocabulary": [],
+    # Whisper-модель, выбранная в меню Model. None = дефолт приложения.
+    "model": None,
 }
 
 SMART_MODES = ("raw", "clean", "prompt")
@@ -37,6 +39,7 @@ def _defaults_copy() -> "dict[str, Any]":
         "hotkey": DEFAULTS["hotkey"],
         "smart_mode": DEFAULTS["smart_mode"],
         "vocabulary": list(DEFAULTS["vocabulary"]),
+        "model": DEFAULTS["model"],
     }
 
 
@@ -83,6 +86,10 @@ def _validate(raw: Any) -> "dict[str, Any]":
         cfg["vocabulary"] = [
             v.strip() for v in vocab if isinstance(v, str) and v.strip()
         ]
+
+    model = raw.get("model")
+    if isinstance(model, str) and model.strip():
+        cfg["model"] = model.strip()
 
     return cfg
 

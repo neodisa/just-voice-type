@@ -116,9 +116,9 @@ def main():
     ap.add_argument("--no-restore-clipboard", action="store_true")
     args = ap.parse_args()
     if args.model is None:
-        args.model = "mlx-community/whisper-large-v3-turbo" if args.engine=="mlx" else "large-v3-turbo"
+        args.model = "mlx-community/whisper-large-v3-mlx" if args.engine=="mlx" else "large-v3"
     print(f"[+] {args.engine} | {args.model} | {args.lang} | hotkey={args.hotkey}")
-    print("[+] Loading model (first run downloads ~1.5GB)...")
+    print("[+] Loading model (first run downloads ~3GB)...")
     tr = MLXTranscriber(args.model, args.lang) if args.engine=="mlx" else FasterWhisperTranscriber(args.model, args.lang)
     rec = Recorder()
     jobs = queue.Queue()
