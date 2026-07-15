@@ -33,6 +33,11 @@ import config
 import languages
 import polish
 
+# единственный источник правды о версии; бампается при каждом релизе
+# (тег vX.Y.Z в git должен совпадать)
+__version__ = "0.5.3"
+RELEASES_URL = "https://github.com/neodisa/just-voice-type/releases"
+
 SAMPLE_RATE = 16_000
 
 SOUND_START = "/System/Library/Sounds/Tink.aiff"
@@ -794,6 +799,11 @@ def run_app(args):
             self.menu.clear()
             self.menu.update(
                 [
+                    rumps.MenuItem(
+                        f"Voice Type v{__version__} — releases…",
+                        callback=self.open_releases,
+                    ),
+                    None,
                     self._hotkey_menu(),
                     self._model_menu(),
                     self._smart_menu(),
@@ -1030,6 +1040,10 @@ def run_app(args):
             enabled["value"] = not enabled["value"]
             self._build_menu()
 
+        def open_releases(self, _):
+            # быстрый способ проверить, последняя ли версия установлена
+            subprocess.Popen(["open", RELEASES_URL])
+
         def copy_last(self, _):
             if last_text["value"]:
                 copy_to_clipboard(last_text["value"])
@@ -1213,7 +1227,7 @@ def run_app(args):
     warm_polisher_async()
 
     print(
-        f"[+] Voice Type started. Hotkey: {current_hotkey['value']}. "
+        f"[+] Voice Type v{__version__} started. Hotkey: {current_hotkey['value']}. "
         f"Model: {current_model['value']}"
     )
     print("[+] Look for the 🎙 icon in the menubar (top-right).")

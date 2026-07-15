@@ -39,6 +39,18 @@ class TestKeyIsDown(unittest.TestCase):
         self.assertIn(type(result), (bool, type(None)))
 
 
+class TestVersion(unittest.TestCase):
+    def test_version_is_semver(self):
+        import re
+
+        self.assertRegex(voice_type.__version__, r"^\d+\.\d+\.\d+$")
+
+    def test_releases_url_points_to_repo(self):
+        self.assertTrue(
+            voice_type.RELEASES_URL.startswith("https://github.com/")
+        )
+
+
 class TestHallucinationFilter(unittest.TestCase):
     def test_known_hallucination(self):
         self.assertTrue(voice_type.is_hallucination("Thank you."))
