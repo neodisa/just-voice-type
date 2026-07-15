@@ -88,6 +88,13 @@ def _require(pkg: str, pip_name: Optional[str] = None):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def log(msg: str, err: bool = False) -> None:
+    """Лог с таймстампом (при запуске из .app stdout/stderr уходят в
+    ~/Library/Logs/WhisperFlow/whisper_flow{,.err}.log)."""
+    stream = sys.stderr if err else sys.stdout
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", file=stream, flush=True)
+
+
 def play_sound(path: str) -> None:
     if not os.path.exists(path):
         return
@@ -210,12 +217,12 @@ class Recorder:
                 self._native_sr = actual_sr
                 if self._stream.channels:
                     self._native_channels = int(self._stream.channels)
-                print(f"[i] stream opened: sr={actual_sr}, ch={self._native_channels}")
+                log(f"[i] stream opened: sr={actual_sr}, ch={self._native_channels}")
                 return True
             except Exception as e:
                 tried.append(f"sr={sr},ch={ch}: {e}")
                 continue
-        print("[!] failed to open microphone: " + "; ".join(tried), file=sys.stderr)
+        log("[!] failed to open microphone: " + "; ".join(tried), err=True)
         return False
 
     def start(self):
@@ -228,7 +235,7 @@ class Recorder:
         # пробуем ещё раз (это лечит «протухший» аудио-контекст без рестарта app).
         if self._try_open():
             return
-        print("[i] reinitializing PortAudio and retrying...", file=sys.stderr)
+        log("[i] reinitializing PortAudio and retrying...", err=True)
         self._reinit_portaudio()
         if self._try_open():
             return
@@ -244,8 +251,13 @@ class Recorder:
                 return None
             self._recording = False
         if self._stream is not None:
+            # abort() отбрасывает буферы и возвращается быстрее stop();
+            # на «протухшем» CoreAudio-потоке stop() может зависнуть надолго
             try:
-                self._stream.stop()
+                self._stream.abort()
+            except Exception:
+                pass
+            try:
                 self._stream.close()
             except Exception:
                 pass
@@ -290,9 +302,7 @@ class Recorder:
             rms = 0.0
             peak = 0.0
 
-        print(
-            f"[a] длительность={duration:.2f}s, RMS={rms:.4f}, peak={peak:.4f}"
-        )
+        log(f"[a] длительность={duration:.2f}s, RMS={rms:.4f}, peak={peak:.4f}")
 
         # Эмпирические пороги: если и RMS<0.003 и peak<0.02 — это тишина
         # (даже самый тихий шёпот даёт RMS ~0.005, peak ~0.05).
@@ -559,6 +569,32 @@ def parse_hotkey(name: str):
     raise ValueError(f"Unknown hotkey: {name}")
 
 
+def _hotkey_vk(key) -> Optional[int]:
+    """Виртуальный keycode pynput-клавиши (Key.alt_r → 61) или None."""
+    vk = getattr(key, "vk", None)
+    if vk is None:
+        vk = getattr(getattr(key, "value", None), "vk", None)
+    return vk if isinstance(vk, int) else None
+
+
+def _key_is_down(vk: int) -> Optional[bool]:
+    """Физически ли клавиша нажата прямо сейчас (опрос HID через Quartz).
+
+    Это независимый от event tap источник правды: даже если событие
+    отпускания потерялось (secure input, отключённый tap), здесь видно
+    реальное состояние. None = проверить не удалось.
+    """
+    try:
+        from Quartz import (
+            CGEventSourceKeyState,
+            kCGEventSourceStateHIDSystemState,
+        )
+
+        return bool(CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, vk))
+    except Exception:
+        return None
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Главное приложение: rumps menubar
 # ──────────────────────────────────────────────────────────────────────────────
@@ -656,10 +692,16 @@ def run_app(args):
 
     # очередь диктовок: float32-моно 16кГц numpy-массивы (None = стоп)
     jobs: "queue.Queue" = queue.Queue()
+    # команды управления записью: "start" | "stop" | "abort" (стоп без текста)
+    ctrl: "queue.Queue" = queue.Queue()
     enabled = {"value": True}
     state = {"value": "idle"}  # idle | recording | transcribing | done
     last_text = {"value": ""}
     done_until = {"ts": 0.0}  # до какого момента показывать «✓ в буфере» в menubar
+    # watchdog против «вечной записи»: vk хоткея, можно ли верить Quartz-опросу
+    # (калибруется при каждом реальном нажатии), счётчик тиков «не нажата»,
+    # и когда запрошен stop (для детекта зависшего PortAudio)
+    watchdog = {"vk": None, "trusted": False, "misses": 0, "stop_at": None}
 
     # ── настройки из конфига (язык/избранное/хоткей переживают перезапуск) ──
     cfg = config.load()
@@ -910,14 +952,11 @@ def run_app(args):
                 except ValueError:
                     notify("Voice Type", f"Unsupported hotkey: {name}")
                     return
-                # если прямо сейчас идёт запись на старой клавише — чисто стопаем
+                # если прямо сейчас идёт запись на старой клавише — чисто
+                # стопаем без транскрипции (через управляющий поток)
                 if is_down["v"]:
                     is_down["v"] = False
-                    try:
-                        recorder.stop()
-                    except Exception:
-                        pass
-                    state["value"] = "idle"
+                    ctrl.put("abort")
                 current_hotkey["value"] = name
                 hotkey_obj_holder["key"] = new_key
                 persist()
@@ -930,6 +969,7 @@ def run_app(args):
         # ── статус-иконка и действия ────────────────────────────────────────
         def _on_tick(self, _):
             now = time.time()
+            self._watchdog_tick(now)
             if state["value"] == "recording":
                 level = max(0.0, min(1.0, recorder.level * 6))
                 n = max(1, int(level * 5))
@@ -942,6 +982,40 @@ def run_app(args):
                 self.title = "✓ copied"
             else:
                 self.title = "🎙" if enabled["value"] else "🚫"
+
+        def _watchdog_tick(self, now):
+            """Страховка от «вечной записи».
+
+            1) Потерянное отпускание: событие release может не дойти
+               (secure input, отключённый event tap) — сверяем наше
+               представление с физическим состоянием клавиши через Quartz
+               и останавливаем запись сами.
+            2) Зависший stop: если после запроса остановки PortAudio молчит
+               дольше 5с — хотя бы честно сообщаем в лог и чиним UI.
+            """
+            if state["value"] != "recording":
+                return
+            if is_down["v"] and watchdog["trusted"]:
+                if _key_is_down(watchdog["vk"]) is False:
+                    watchdog["misses"] += 1
+                    if watchdog["misses"] >= 3:  # ~0.9с подряд «не нажата»
+                        log(
+                            "[watchdog] hotkey released but no release event "
+                            "arrived (lost by event tap?) — stopping recording"
+                        )
+                        finish_recording("watchdog")
+                else:
+                    watchdog["misses"] = 0
+            elif not is_down["v"] and watchdog["stop_at"] is not None:
+                if now - watchdog["stop_at"] > 5.0:
+                    log(
+                        "[watchdog] recorder.stop still running 5s after "
+                        "request — PortAudio hung; restart the app if the "
+                        "mic stops responding"
+                    )
+                    watchdog["stop_at"] = None
+                    play_sound(SOUND_ERROR)
+                    state["value"] = "idle"
 
         def toggle_enabled(self, _):
             enabled["value"] = not enabled["value"]
@@ -1004,7 +1078,7 @@ def run_app(args):
                     )
                     print(f"[i] polished ({smart_mode['value']}, {time.time() - t1:.1f}s)")
                 if text:
-                    print(f"[✓] ({dt:.1f}s) copied: {text}")
+                    log(f"[✓] ({dt:.1f}s) copied: {text}")
                     last_text["value"] = text
                     play_sound(SOUND_DONE)  # сигнал: распознано и в буфере
                     deliver_text(
@@ -1044,6 +1118,55 @@ def run_app(args):
     hotkey_obj_holder = {"key": _resolve_hotkey(current_hotkey["value"])}
     is_down = {"v": False}
 
+    def control_loop():
+        """Все операции с PortAudio — в одном фоновом потоке.
+
+        Раньше recorder.start()/stop() выполнялись прямо в колбэке pynput
+        (поток event tap). Когда CoreAudio «протухает», открытие/остановка
+        аудиопотока блокируется на секунды, macOS отключает не отвечающий
+        event tap (kCGEventTapDisabledByTimeout) — отпускание клавиши
+        теряется, и приложение навсегда остаётся в состоянии «слушаю».
+        Здесь колбэки клавиш только кладут команду в очередь и мгновенно
+        возвращаются.
+        """
+        while True:
+            cmd = ctrl.get()
+            if cmd == "start":
+                t0 = time.time()
+                try:
+                    recorder.start()
+                    dt = time.time() - t0
+                    if dt > 0.5:
+                        log(f"[rec] start took {dt:.2f}s (stale CoreAudio?)")
+                except Exception as e:
+                    log(f"[!] recorder.start failed ({time.time() - t0:.2f}s): {e}")
+                    play_sound(SOUND_ERROR)
+                    is_down["v"] = False
+                    state["value"] = "idle"
+            elif cmd in ("stop", "abort"):
+                t0 = time.time()
+                audio = recorder.stop()
+                dt = time.time() - t0
+                watchdog["stop_at"] = None
+                if dt > 1.0:
+                    log(f"[!] recorder.stop took {dt:.2f}s (stale CoreAudio?)")
+                # именно `is not None`: numpy-массив нельзя проверять как bool
+                if cmd == "stop" and audio is not None:
+                    jobs.put(audio)
+                else:
+                    state["value"] = "idle"
+                    if cmd == "stop":
+                        print("[·] Too short.")
+
+    def finish_recording(source: str):
+        """Единая точка завершения записи (реальное отпускание или watchdog)."""
+        is_down["v"] = False
+        watchdog["stop_at"] = time.time()
+        play_sound(SOUND_STOP)
+        if source != "key release":
+            log(f"[rec] stop requested by {source}")
+        ctrl.put("stop")
+
     def on_press(key):
         try:
             if not enabled["value"]:
@@ -1051,28 +1174,28 @@ def run_app(args):
             if key == hotkey_obj_holder["key"] and not is_down["v"]:
                 is_down["v"] = True
                 state["value"] = "recording"
+                # калибровка watchdog: сразу после реального нажатия Quartz
+                # обязан видеть клавишу нажатой — иначе опросу верить нельзя
+                # (например, для fn) и watchdog для этой клавиши отключается
+                vk = _hotkey_vk(key)
+                watchdog["vk"] = vk
+                watchdog["trusted"] = vk is not None and _key_is_down(vk) is True
+                watchdog["misses"] = 0
                 play_sound(SOUND_START)
-                recorder.start()
+                ctrl.put("start")  # не блокируем поток event tap
         except Exception as e:
-            print(f"[!] on_press: {e}", file=sys.stderr)
+            log(f"[!] on_press: {e}")
 
     def on_release(key):
         try:
             if not enabled["value"]:
                 return
             if key == hotkey_obj_holder["key"] and is_down["v"]:
-                is_down["v"] = False
-                play_sound(SOUND_STOP)
-                audio = recorder.stop()
-                # именно `is not None`: numpy-массив нельзя проверять как bool
-                if audio is not None:
-                    jobs.put(audio)
-                else:
-                    state["value"] = "idle"
-                    print("[·] Too short.")
+                finish_recording("key release")
         except Exception as e:
-            print(f"[!] on_release: {e}", file=sys.stderr)
+            log(f"[!] on_release: {e}")
 
+    threading.Thread(target=control_loop, daemon=True).start()
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     listener.daemon = True
     listener.start()
