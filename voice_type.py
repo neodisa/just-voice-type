@@ -24,10 +24,8 @@ import os
 import queue
 import subprocess
 import sys
-import tempfile
 import threading
 import time
-import wave
 from dataclasses import dataclass
 from typing import Optional
 
@@ -36,8 +34,6 @@ import languages
 import polish
 
 SAMPLE_RATE = 16_000
-CHANNELS = 1
-SAMPLE_WIDTH = 2
 
 SOUND_START = "/System/Library/Sounds/Tink.aiff"
 SOUND_STOP = "/System/Library/Sounds/Pop.aiff"
@@ -239,7 +235,10 @@ class Recorder:
         self._recording = False
         raise RuntimeError("failed to open microphone even after PortAudio reinit")
 
-    def stop(self) -> Optional[str]:
+    def stop(self):
+        """Останавливает запись и возвращает float32-моно 16кГц numpy-массив
+        (или None, если запись слишком короткая/тихая). Аудио передаётся
+        транскрайберу напрямую в памяти — без временного WAV-файла."""
         with self._lock:
             if not self._recording:
                 return None
@@ -277,11 +276,14 @@ class Recorder:
                     old_idx, self.np.arange(len(audio)), audio
                 ).astype(self.np.int16)
 
+        # float32 [-1..1] — формат, который принимают и mlx_whisper, и
+        # faster-whisper напрямую (без временного WAV на диске)
+        audio_f = audio.astype(self.np.float32) / 32768.0
+
         # ── защита от «Thank you»-галлюцинации Whisper ────────────────────
         # Если в записи фактически только тишина — не отправляем на модель.
         # Используем RMS (среднеквадратичное значение) и пиковое значение.
         try:
-            audio_f = audio.astype(self.np.float32) / 32768.0
             rms = float(self.np.sqrt(self.np.mean(audio_f * audio_f)))
             peak = float(self.np.max(self.np.abs(audio_f)))
         except Exception:
@@ -298,15 +300,7 @@ class Recorder:
             print("[·] Silence — skipping (guard against 'Thank you' hallucination)")
             return None
 
-        path = os.path.join(
-            tempfile.gettempdir(), f"voice_type_{int(time.time() * 1000)}.wav"
-        )
-        with wave.open(path, "wb") as wf:
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(SAMPLE_WIDTH)
-            wf.setframerate(self.sample_rate)
-            wf.writeframes(audio.tobytes())
-        return path
+        return audio_f
 
     @property
     def level(self) -> float:
@@ -333,6 +327,9 @@ class MLXTranscriber:
         self.model = model
         # None = автоопределение
         self.language = language
+        # язык последней транскрипции (детект Whisper) — нужен полировщику,
+        # чтобы LLM не переводила текст, когда выбран режим Auto
+        self.last_language: Optional[str] = None
 
     @staticmethod
     def _load_audio(wav_path: str):
@@ -374,10 +371,11 @@ class MLXTranscriber:
 
     def transcribe(
         self,
-        wav_path: str,
+        audio,
         language: Optional[str] = None,
         initial_prompt: Optional[str] = None,
     ) -> str:
+        """audio: float32-моно 16кГц numpy-массив или путь к WAV-файлу."""
         # язык можно переопределить на каждый запрос
         lang = language if language is not None else self.language
         kwargs = dict(
@@ -388,13 +386,26 @@ class MLXTranscriber:
             kwargs["language"] = lang
         if initial_prompt:
             kwargs["initial_prompt"] = initial_prompt
-        audio = self._load_audio(wav_path)
+        if isinstance(audio, str):
+            audio = self._load_audio(audio)
         result = self._transcribe(audio, **kwargs)
         # печатаем определённый язык в лог (полезно для дебага)
         detected = result.get("language")
         if detected and not lang:
             print(f"[i] language detected: {detected}")
+        self.last_language = lang or detected
         return (result.get("text") or "").strip()
+
+    def warm_up(self) -> None:
+        """Прогоняем 0.5с тишины через модель: mlx_whisper грузит веса лениво,
+        и без прогрева первая диктовка платит загрузку + компиляцию
+        Metal-кернелов (ощущается как «зависло»). Best-effort, не кидает."""
+        import numpy as np
+
+        try:
+            self.transcribe(np.zeros(SAMPLE_RATE // 2, dtype=np.float32), language="en")
+        except Exception as e:
+            print(f"[!] whisper warm-up failed: {e}", file=sys.stderr)
 
 
 class FasterWhisperTranscriber:
@@ -407,24 +418,38 @@ class FasterWhisperTranscriber:
         self._model = WhisperModel(model, device="cpu", compute_type="int8")
         self.model = model
         self.language = language
+        self.last_language: Optional[str] = None
 
     def transcribe(
         self,
-        wav_path: str,
+        audio,
         language: Optional[str] = None,
         initial_prompt: Optional[str] = None,
     ) -> str:
+        """audio: float32-моно 16кГц numpy-массив или путь к WAV-файлу."""
         lang = language if language is not None else self.language
         segments, info = self._model.transcribe(
-            wav_path,
+            audio,
             language=lang,  # None = auto-detect
             vad_filter=True,
-            beam_size=5,
+            # greedy: для диктовки ~2x быстрее beam search при неотличимом
+            # качестве на коротких фразах
+            beam_size=1,
             initial_prompt=initial_prompt or None,
         )
         if info and not lang:
             print(f"[i] language detected: {info.language}")
+        self.last_language = lang or (info.language if info else None)
         return " ".join(seg.text.strip() for seg in segments).strip()
+
+    def warm_up(self) -> None:
+        """Прогрев декодера на 0.5с тишины (веса уже загружены в __init__)."""
+        import numpy as np
+
+        try:
+            self.transcribe(np.zeros(SAMPLE_RATE // 2, dtype=np.float32), language="en")
+        except Exception as e:
+            print(f"[!] whisper warm-up failed: {e}", file=sys.stderr)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -603,17 +628,24 @@ def run_app(args):
         def _load():
             target = current_model["value"]
             try:
-                # инициируем с None — язык подставляется на каждый запрос.
-                # Для MLX веса грузятся лениво (на первом transcribe), так что
-                # конструктор почти мгновенный; для faster — модель грузится тут.
+                # инициируем с None — язык подставляется на каждый запрос
                 if args.engine == "mlx":
                     obj = MLXTranscriber(target, None)
                 else:
                     obj = FasterWhisperTranscriber(target, None)
+                # Прогреваем ДО публикации: скачивание весов, загрузка и
+                # компиляция Metal-кернелов происходят здесь, в фоне. Воркер
+                # ждёт, пока loading=True, так что диктовка во время прогрева
+                # просто дождётся готовой (уже быстрой) модели.
+                t0 = time.time()
+                obj.warm_up()
                 # за время загрузки выбор мог снова поменяться — не перетираем
                 if current_model["value"] == target:
                     transcriber_holder["obj"] = obj
-                print(f"[+] Model ready: {target.split('/')[-1]}")
+                print(
+                    f"[+] Model ready: {target.split('/')[-1]} "
+                    f"(warm-up {time.time() - t0:.1f}s)"
+                )
             except Exception as e:
                 print(f"[!] Model load error: {e}", file=sys.stderr)
             finally:
@@ -622,7 +654,8 @@ def run_app(args):
         threading.Thread(target=_load, daemon=True).start()
         return None
 
-    jobs: "queue.Queue[str]" = queue.Queue()
+    # очередь диктовок: float32-моно 16кГц numpy-массивы (None = стоп)
+    jobs: "queue.Queue" = queue.Queue()
     enabled = {"value": True}
     state = {"value": "idle"}  # idle | recording | transcribing | done
     last_text = {"value": ""}
@@ -646,6 +679,12 @@ def run_app(args):
     smart_mode = {"value": cfg["smart_mode"]}
     vocabulary = {"value": list(cfg["vocabulary"])}
     polisher = polish.Polisher()
+
+    def warm_polisher_async():
+        """Фоновый прогрев LLM: без него первая clean/prompt-диктовка платит
+        загрузку весов + компиляцию кернелов (несколько секунд)."""
+        if smart_mode["value"] != "raw" and not polisher.is_loaded():
+            threading.Thread(target=polisher.warm_up, daemon=True).start()
 
     def persist():
         # vocabulary is owned by the user via the config file (Edit vocabulary…),
@@ -847,6 +886,7 @@ def run_app(args):
                 smart_mode["value"] = mode
                 persist()
                 self._build_menu()
+                warm_polisher_async()
                 print(f"[i] Smart mode set: {mode}")
                 notify("Voice Type", f"Smart → {mode}")
 
@@ -919,15 +959,15 @@ def run_app(args):
 
     def worker():
         while True:
-            wav_path = jobs.get()
-            if wav_path is None:
+            audio = jobs.get()
+            if audio is None:
                 return
             try:
                 state["value"] = "transcribing"
                 tr = get_transcriber()
-                for _ in range(600):
-                    if tr is not None:
-                        break
+                # ждём, пока фоновый _load скачает/прогреет модель (без
+                # жёсткого таймаута: первое скачивание может занять минуты)
+                while tr is None and transcriber_holder["loading"]:
                     time.sleep(0.1)
                     tr = transcriber_holder["obj"]
                 if tr is None:
@@ -940,7 +980,7 @@ def run_app(args):
                 vocab_prompt = ", ".join(vocabulary["value"]) or None
                 # передаём текущий выбранный язык (None = auto) и словарь-bias
                 text = tr.transcribe(
-                    wav_path,
+                    audio,
                     language=current_lang["value"],
                     initial_prompt=vocab_prompt,
                 )
@@ -952,11 +992,14 @@ def run_app(args):
                     if not polisher.is_loaded():
                         notify("Voice Type", "Загружаю LLM… (первый раз)")
                     t1 = time.time()
+                    # при Auto берём язык, который определил Whisper, — без
+                    # него маленькая LLM может перевести текст на английский
+                    polish_lang = current_lang["value"] or tr.last_language
                     text = polish_text_safe(
                         polisher,
                         text,
                         smart_mode["value"],
-                        current_lang["value"],
+                        polish_lang,
                         vocabulary["value"],
                     )
                     print(f"[i] polished ({smart_mode['value']}, {time.time() - t1:.1f}s)")
@@ -982,10 +1025,6 @@ def run_app(args):
                 play_sound(SOUND_ERROR)
                 print(f"[!] {e}", file=sys.stderr)
             finally:
-                try:
-                    os.remove(wav_path)
-                except OSError:
-                    pass
                 state["value"] = "idle"
 
     threading.Thread(target=worker, daemon=True).start()
@@ -1024,9 +1063,10 @@ def run_app(args):
             if key == hotkey_obj_holder["key"] and is_down["v"]:
                 is_down["v"] = False
                 play_sound(SOUND_STOP)
-                wav = recorder.stop()
-                if wav:
-                    jobs.put(wav)
+                audio = recorder.stop()
+                # именно `is not None`: numpy-массив нельзя проверять как bool
+                if audio is not None:
+                    jobs.put(audio)
                 else:
                     state["value"] = "idle"
                     print("[·] Too short.")
@@ -1038,6 +1078,7 @@ def run_app(args):
     listener.start()
 
     get_transcriber()
+    warm_polisher_async()
 
     print(
         f"[+] Voice Type started. Hotkey: {current_hotkey['value']}. "
@@ -1098,8 +1139,12 @@ def main():
     args = ap.parse_args()
 
     if args.model is None:
+        # turbo: ~5-6x быстрее large-v3 при почти той же точности
+        # (4 decoder-слоя вместо 32); мультиязычность/код-свитчинг те же
         args.model = (
-            "mlx-community/whisper-large-v3-mlx" if args.engine == "mlx" else "large-v3"
+            "mlx-community/whisper-large-v3-turbo"
+            if args.engine == "mlx"
+            else "large-v3-turbo"
         )
 
     run_app(args)

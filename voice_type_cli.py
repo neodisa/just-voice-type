@@ -69,7 +69,7 @@ class FasterWhisperTranscriber:
             print("\n[!] pip install faster-whisper\n", file=sys.stderr); raise SystemExit(1) from e
         self._model = WhisperModel(model, device="cpu", compute_type="int8"); self.language = language
     def transcribe(self, wav_path):
-        segs, _ = self._model.transcribe(wav_path, language=self.language, vad_filter=True, beam_size=5)
+        segs, _ = self._model.transcribe(wav_path, language=self.language, vad_filter=True, beam_size=1)
         return " ".join(s.text.strip() for s in segs).strip()
 
 def copy_to_clipboard(text):
@@ -116,9 +116,9 @@ def main():
     ap.add_argument("--no-restore-clipboard", action="store_true")
     args = ap.parse_args()
     if args.model is None:
-        args.model = "mlx-community/whisper-large-v3-mlx" if args.engine=="mlx" else "large-v3"
+        args.model = "mlx-community/whisper-large-v3-turbo" if args.engine=="mlx" else "large-v3-turbo"
     print(f"[+] {args.engine} | {args.model} | {args.lang} | hotkey={args.hotkey}")
-    print("[+] Loading model (first run downloads ~3GB)...")
+    print("[+] Loading model (first run downloads ~1.5GB)...")
     tr = MLXTranscriber(args.model, args.lang) if args.engine=="mlx" else FasterWhisperTranscriber(args.model, args.lang)
     rec = Recorder()
     jobs = queue.Queue()

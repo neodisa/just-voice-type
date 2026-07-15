@@ -26,6 +26,23 @@ class TestBuildMessages(unittest.TestCase):
         msgs = polish.build_messages("x", "prompt", vocabulary=[])
         self.assertNotIn("Anthropic", msgs[0]["content"])
 
+    def test_clean_mode_includes_fewshot_examples(self):
+        msgs = polish.build_messages("текст", "clean", language="ru")
+        roles = [m["role"] for m in msgs]
+        # system, затем пары user/assistant (few-shot), затем реальный ввод
+        self.assertEqual(roles[0], "system")
+        self.assertIn("assistant", roles)
+        self.assertEqual(roles[-1], "user")
+        self.assertEqual(msgs[-1]["content"], "текст")
+
+    def test_prompt_mode_has_no_fewshot(self):
+        msgs = polish.build_messages("текст", "prompt")
+        self.assertEqual([m["role"] for m in msgs], ["system", "user"])
+
+    def test_rules_protect_english_terms(self):
+        msgs = polish.build_messages("x", "clean")
+        self.assertIn("never translate", msgs[0]["content"].lower())
+
 
 class TestCleanOutput(unittest.TestCase):
     def test_strips_surrounding_whitespace(self):
@@ -131,6 +148,57 @@ class TestPolisher(unittest.TestCase):
         )
         p.polish("a", "clean")
         p.polish("b", "clean")
+        self.assertEqual(calls["load"], 1)
+
+    def test_warm_up_loads_model_and_runs_tiny_generate(self):
+        calls = {"load": 0, "gen": 0, "max_tokens": None}
+
+        def load_fn(m):
+            calls["load"] += 1
+            return ("M", _FakeTokenizer())
+
+        def gen_fn(model, tokenizer, *, prompt, max_tokens, sampler):
+            calls["gen"] += 1
+            calls["max_tokens"] = max_tokens
+            return "x"
+
+        p = polish.Polisher(
+            model="fake",
+            load_fn=load_fn,
+            generate_fn=gen_fn,
+            sampler_fn=lambda temp=0.0, **k: "S",
+        )
+        p.warm_up()
+        self.assertTrue(p.is_loaded())
+        self.assertEqual(calls["load"], 1)
+        self.assertEqual(calls["gen"], 1)
+        # прогрев должен быть дешёвым — единицы токенов, не полноценная генерация
+        self.assertLessEqual(calls["max_tokens"], 4)
+
+    def test_warm_up_never_raises(self):
+        def boom(*a, **k):
+            raise RuntimeError("no weights")
+
+        p = polish.Polisher(model="fake", load_fn=boom, generate_fn=boom)
+        p.warm_up()  # не должно кинуть
+        self.assertFalse(p.is_loaded())
+
+    def test_warm_up_idempotent_loads_once(self):
+        calls = {"load": 0}
+
+        def load_fn(m):
+            calls["load"] += 1
+            return ("M", _FakeTokenizer())
+
+        p = polish.Polisher(
+            model="fake",
+            load_fn=load_fn,
+            generate_fn=lambda *a, **k: "x",
+            sampler_fn=lambda **k: "S",
+        )
+        p.warm_up()
+        p.warm_up()
+        p.polish("a", "clean")
         self.assertEqual(calls["load"], 1)
 
     def test_generate_called_with_sampler_not_temperature(self):

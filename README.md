@@ -9,10 +9,10 @@ Hold Right Option, speak, release — your text is pasted wherever the cursor is
 
 - 🎙 **Menubar icon** with live status (idle, REC, processing, paused)
 - ⌨️ **Push-to-talk** on any system key — switch it from the **Hotkey** menu (Right Option, Left Option, Fn, Cmd, Ctrl, Shift, F13–F19), applied instantly, no restart.
-- 🧠 **MLX Whisper** (default `large-v3`) — fast on Apple Silicon. Falls back to `faster-whisper` on CPU.
+- 🧠 **MLX Whisper** (default `large-v3-turbo` — ~5-6x faster than `large-v3` at near-identical accuracy) — fast on Apple Silicon. Falls back to `faster-whisper` on CPU. Models warm up in the background at startup, so the first dictation is as fast as the rest.
 - 🔀 **Switch models from the menu** — pick `large-v3-turbo` (fast, recommended), `large-v3`, `medium`, or `small` on the fly, no restart. The next dictation uses the new model.
 - 🌐 **Pick the language from the menu** — your working ("favorite") languages plus **Auto** sit at the top; choose one to make it active. **All languages…** lists the full Whisper set (~99) where you check which languages to keep as favorites.
-- 🪄 **Smart modes** — pick **Raw** (verbatim), **Clean** (strip filler & fix punctuation), or **Prompt** (restructure your dictation into a clear instruction for an AI) from the **Smart** menu. Runs a small on-device LLM (`Qwen2.5-3B-Instruct-4bit` via `mlx_lm`) — still no cloud. Add domain terms via **Edit vocabulary…** so misheard names/jargon get fixed and bias Whisper itself.
+- 🪄 **Smart modes** — pick **Raw** (verbatim), **Clean** (strip filler & fix punctuation), or **Prompt** (restructure your dictation into a clear instruction for an AI) from the **Smart** menu. Runs a small on-device LLM (`Qwen2.5-1.5B-Instruct-4bit` via `mlx_lm`) — still no cloud. Add domain terms via **Edit vocabulary…** so misheard names/jargon get fixed and bias Whisper itself.
 - 💾 **Settings persist** across restarts (favorite languages, active language, hotkey, smart mode, vocabulary) in `~/.config/just-voice-type/config.json`.
 - 📋 **Auto-paste** of recognized text via clipboard + `Cmd+V`, with original clipboard restored
 - 🔔 macOS sounds on start/stop, optional notifications
@@ -28,7 +28,7 @@ The **Smart** menu controls a local LLM pass that runs *after* Whisper, on the r
 
 Notes:
 
-- The LLM (`Qwen2.5-3B-Instruct-4bit`, ~2 GB) **downloads on the first Clean/Prompt dictation** and is then kept warm in memory. Raw never loads it.
+- The LLM (`Qwen2.5-1.5B-Instruct-4bit`, ~1 GB) **downloads and warms up in the background** as soon as Clean/Prompt is selected (or at startup if it's already your mode). Raw never loads it.
 - It runs **fully on-device** via `mlx_lm` — no cloud, no API keys, consistent with the rest of the app.
 - Polishing **never blocks paste**: on any error or timeout it falls back to the raw Whisper text.
 - **Edit vocabulary…** opens `config.json`; add your recurring terms/names to the `vocabulary` list. They feed both Whisper's `initial_prompt` (so it mishears them less) and the LLM (so it corrects them from context).
@@ -37,7 +37,7 @@ Notes:
 
 - macOS on Apple Silicon (M1/M2/M3/M4)
 - Python 3.10+
-- First run downloads the Whisper model (~3 GB for `large-v3`) into `~/.cache/huggingface/`
+- First run downloads the Whisper model (~1.5 GB for `large-v3-turbo`) into `~/.cache/huggingface/`
 
 ## Install
 
@@ -75,7 +75,7 @@ A 🎙 icon appears in the menubar. Hold Right Option — a capsule with a pulsi
 | Flag | Meaning |
 |---|---|
 | `--engine mlx \| faster` | Backend. Default `mlx` (fastest on Apple Silicon). |
-| `--model <id>` | HF model id. Default `mlx-community/whisper-large-v3-mlx`. |
+| `--model <id>` | HF model id. Default `mlx-community/whisper-large-v3-turbo`. |
 | `--lang en` | Language code. Default `ru`. Use `en`, `de`, `es`, etc. |
 | `--hotkey right_option` | `right_option`, `left_option`, `fn`, `right_shift`, `f13`..`f20`. |
 | `--no-paste` | Don't paste, only copy to clipboard. |
@@ -121,12 +121,12 @@ The fastest way is the **Model** submenu in the 🎙 menubar icon — switch mod
 
 | Model | Notes |
 |---|---|
-| ⚡ `large-v3-turbo` | Fast, near-`large-v3` quality. **Recommended for speed.** (~1.5 GB) |
-| 🎯 `large-v3` | Most accurate, slowest. Default on startup. (~3 GB) |
+| ⚡ `large-v3-turbo` | Fast, near-`large-v3` quality. **Default on startup.** (~1.5 GB) |
+| 🎯 `large-v3` | Most accurate, ~5-6x slower. (~3 GB) |
 | `medium` | Balanced. |
 | `small` | Fastest, less accurate (weak for non-English). |
 
-The first dictation on a freshly picked model downloads it from HuggingFace; after that it's served from cache (`~/.cache/huggingface/`) and switching is instant.
+A freshly picked model downloads from HuggingFace and warms up in the background; after that it's served from cache (`~/.cache/huggingface/`) and switching is instant.
 
 You can also pin a model at launch via the CLI:
 
