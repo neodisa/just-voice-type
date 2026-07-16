@@ -1068,10 +1068,11 @@ def run_app(args):
                     return
                 # если прямо сейчас идёт запись на старой клавише — чисто
                 # стопаем без транскрипции (через управляющий поток)
-                if gr.is_recording:
-                    _cancel_pending_timer()
-                    gr.mode = "idle"
-                    ctrl.put("abort")
+                with gesture_lock:
+                    if gr.is_recording:
+                        _cancel_pending_timer()
+                        gr.mode = "idle"
+                        ctrl.put("abort")
                 current_hotkey["value"] = name
                 hotkey_obj_holder["key"] = new_key
                 persist()
@@ -1267,8 +1268,11 @@ def run_app(args):
             return parse_hotkey("right_option")
 
     hotkey_obj_holder = {"key": _resolve_hotkey(current_hotkey["value"])}
-    # распознаватель жестов (hold / double-tap / tap) и id текущей сессии
+    # распознаватель жестов (hold / double-tap / tap) и id текущей сессии.
+    # gr дёргают три потока (клавиатура, pending-таймер, watchdog) — все
+    # переходы под gesture_lock, чтобы состояние не разъехалось.
     gr = gestures.GestureRecognizer()
+    gesture_lock = threading.Lock()
     session = {"id": 0, "active": False, "start_ts": 0.0}
     pending_timer = {"t": None}
     # авто-стоп hands-free-записи, если о ней забыли (страховка)
@@ -1351,8 +1355,8 @@ def run_app(args):
         _cancel_pending_timer()
 
         def _fire():
-            actions = gr.on_timeout(time.time())
-            _apply_actions(actions, None)
+            with gesture_lock:
+                _apply_actions(gr.on_timeout(time.time()), None)
 
         t = threading.Timer(gr.window, _fire)
         t.daemon = True
@@ -1384,14 +1388,16 @@ def run_app(args):
 
     def _handle_release(now):
         """Обработать отпускание хоткея (реальное или от watchdog)."""
-        _apply_actions(gr.on_release(now), None)
+        with gesture_lock:
+            _apply_actions(gr.on_release(now), None)
 
     def on_press(key):
         try:
             if not enabled["value"]:
                 return
             if key == hotkey_obj_holder["key"]:
-                _apply_actions(gr.on_press(time.time()), key)
+                with gesture_lock:
+                    _apply_actions(gr.on_press(time.time()), key)
         except Exception as e:
             log(f"[!] on_press: {e}")
 
