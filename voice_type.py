@@ -30,12 +30,13 @@ from dataclasses import dataclass
 from typing import Optional
 
 import config
+import history
 import languages
 import polish
 
 # единственный источник правды о версии; бампается при каждом релизе
 # (тег vX.Y.Z в git должен совпадать)
-__version__ = "0.5.3"
+__version__ = "0.6.0"
 RELEASES_URL = "https://github.com/neodisa/just-voice-type/releases"
 
 SAMPLE_RATE = 16_000
@@ -703,6 +704,10 @@ def run_app(args):
     enabled = {"value": True}
     state = {"value": "idle"}  # idle | recording | transcribing | done
     last_text = {"value": ""}
+    # история диктовок: список в памяти + persist на диск; меню перестраивается
+    # только из главного потока (AppKit) — воркер лишь поднимает флаг
+    history_items = {"value": history.load()}
+    menu_dirty = {"value": False}
     done_until = {"ts": 0.0}  # до какого момента показывать «✓ в буфере» в menubar
     # watchdog против «вечной записи»: vk хоткея, можно ли верить Quartz-опросу
     # (калибруется при каждом реальном нажатии), счётчик тиков «не нажата»,
@@ -817,6 +822,7 @@ def run_app(args):
                         callback=self.toggle_enabled,
                     ),
                     rumps.MenuItem("Copy last text", callback=self.copy_last),
+                    self._history_menu(),
                     None,
                     rumps.MenuItem("Quit", callback=self.quit_app),
                 ]
@@ -865,6 +871,40 @@ def run_app(args):
                 rumps.MenuItem("Edit vocabulary…", callback=self.edit_vocabulary)
             )
             return ("Smart", items)
+
+        def _history_menu(self):
+            items = []
+            for i, item in enumerate(
+                history_items["value"][: history.MENU_ITEMS], start=1
+            ):
+                items.append(
+                    rumps.MenuItem(
+                        history.label(i, item),
+                        callback=self._make_history_copier(item["text"]),
+                    )
+                )
+            if not items:
+                empty = rumps.MenuItem("No dictations yet")
+                empty.set_callback(None)
+                items.append(empty)
+            items.append(None)
+            items.append(
+                rumps.MenuItem("Clear history…", callback=self.clear_history)
+            )
+            return ("History", items)
+
+        def _make_history_copier(self, text):
+            def copier(_):
+                copy_to_clipboard(text)
+                notify("Voice Type", "Copied from history — paste with Cmd+V")
+
+            return copier
+
+        def clear_history(self, _):
+            history.clear()
+            history_items["value"] = []
+            self._build_menu()
+            notify("Voice Type", "History cleared")
 
         def _language_menu(self):
             items = []
@@ -989,6 +1029,11 @@ def run_app(args):
         def _on_tick(self, _):
             now = time.time()
             self._watchdog_tick(now)
+            # перестройка меню (новая запись в истории) — только здесь,
+            # в главном потоке AppKit; воркер лишь поднимает флаг
+            if menu_dirty["value"]:
+                menu_dirty["value"] = False
+                self._build_menu()
             if state["value"] == "recording":
                 level = max(0.0, min(1.0, recorder.level * 6))
                 n = max(1, int(level * 5))
@@ -1103,6 +1148,8 @@ def run_app(args):
                 if text:
                     log(f"[✓] ({dt:.1f}s) copied: {text}")
                     last_text["value"] = text
+                    history_items["value"] = history.add(text)
+                    menu_dirty["value"] = True
                     play_sound(SOUND_DONE)  # сигнал: распознано и в буфере
                     deliver_text(
                         text,
