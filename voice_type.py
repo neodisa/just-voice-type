@@ -30,13 +30,15 @@ from dataclasses import dataclass
 from typing import Optional
 
 import config
+import gestures
 import history
 import languages
 import polish
+import streaming
 
 # единственный источник правды о версии; бампается при каждом релизе
 # (тег vX.Y.Z в git должен совпадать)
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 RELEASES_URL = "https://github.com/neodisa/just-voice-type/releases"
 
 SAMPLE_RATE = 16_000
@@ -144,6 +146,10 @@ class Recorder:
         # реальный sample rate микрофона (узнаём при первом старте)
         self._native_sr: Optional[int] = None
         self._native_channels: int = 1
+        # аккумулятор снятых кадров в НАТИВНОМ sr (моно float [-1..1]) —
+        # сюда сливаются сырые кадры при снятии чанка; отдельно от _frames,
+        # чтобы не смешивать форматы (callback пишет int16, а хвост — float)
+        self._carry = None
 
     def _callback(self, indata, frames, time_info, status):
         if status:
@@ -236,6 +242,7 @@ class Recorder:
             if self._recording:
                 return
             self._frames = []
+            self._carry = None
             self._recording = True
         # Пытаемся открыть; если не вышло — переинициализируем PortAudio и
         # пробуем ещё раз (это лечит «протухший» аудио-контекст без рестарта app).
@@ -248,14 +255,79 @@ class Recorder:
         self._recording = False
         raise RuntimeError("failed to open microphone even after PortAudio reinit")
 
+    def _to_mono_native(self, raw):
+        """Сырые кадры (int16, моно/стерео) → float [-1..1] моно, нативный sr."""
+        if raw.ndim == 2 and raw.shape[1] > 1:
+            raw = raw.mean(axis=1)
+        elif raw.ndim == 2:
+            raw = raw[:, 0]
+        return raw.astype(self.np.float32) / 32768.0
+
+    def _resample_16k(self, audio_native):
+        """float-моно нативный sr → float32-моно 16кГц (линейная интерполяция)."""
+        src_sr = self._native_sr or SAMPLE_RATE
+        if src_sr == SAMPLE_RATE or len(audio_native) <= 1:
+            return audio_native.astype(self.np.float32)
+        new_len = int(round(len(audio_native) * SAMPLE_RATE / src_sr))
+        if new_len <= 1:
+            return audio_native.astype(self.np.float32)
+        old_idx = self.np.linspace(0, len(audio_native) - 1, new_len)
+        return self.np.interp(
+            old_idx, self.np.arange(len(audio_native)), audio_native
+        ).astype(self.np.float32)
+
+    def _drain_frames_locked(self):
+        """Слить сырые кадры из callback в _carry (нативный моно float).
+        Вызывать под self._lock."""
+        if self._frames:
+            raw = self.np.concatenate(self._frames, axis=0)
+            self._frames = []
+            mono = self._to_mono_native(raw)
+            if self._carry is None or len(self._carry) == 0:
+                self._carry = mono
+            else:
+                self._carry = self.np.concatenate([self._carry, mono], axis=0)
+
+    def take_chunk(
+        self,
+        min_sec: float,
+        target_sec: float,
+        hard_max_sec: float,
+    ):
+        """Если накоплено >= min_sec — отрезать префикс до тихой точки и вернуть
+        его как float32-моно 16кГц; хвост остаётся в буфере. Иначе None.
+
+        Позволяет транскрибировать длинную диктовку по кускам, пока она идёт.
+        """
+        import streaming
+
+        src_sr = self._native_sr or SAMPLE_RATE
+        with self._lock:
+            if not self._recording:
+                return None
+            self._drain_frames_locked()
+            carry = self._carry
+            if carry is None or len(carry) / src_sr < min_sec:
+                return None
+            split = streaming.find_split_point(carry, src_sr, target_sec=target_sec)
+            hard = int(hard_max_sec * src_sr)
+            if split > hard:  # паузы всё нет — режем принудительно
+                split = hard
+            split = max(1, min(split, len(carry)))
+            prefix_native = carry[:split]
+            self._carry = carry[split:]
+        return self._resample_16k(prefix_native)
+
     def stop(self):
-        """Останавливает запись и возвращает float32-моно 16кГц numpy-массив
-        (или None, если запись слишком короткая/тихая). Аудио передаётся
-        транскрайберу напрямую в памяти — без временного WAV-файла."""
+        """Останавливает запись и возвращает остаток как float32-моно 16кГц
+        (или None, если он слишком короткий/тихий)."""
         with self._lock:
             if not self._recording:
                 return None
             self._recording = False
+            self._drain_frames_locked()
+            carry = self._carry
+            self._carry = None
         if self._stream is not None:
             # abort() отбрасывает буферы и возвращается быстрее stop();
             # на «протухшем» CoreAudio-потоке stop() может зависнуть надолго
@@ -268,39 +340,19 @@ class Recorder:
             except Exception:
                 pass
             self._stream = None
-        if not self._frames:
+        if carry is None or len(carry) == 0:
             return None
-        audio = self.np.concatenate(self._frames, axis=0)
 
-        # если устройство дало стерео — миксуем в моно
-        if audio.ndim == 2 and audio.shape[1] > 1:
-            audio = audio.mean(axis=1).astype(self.np.int16)
-        elif audio.ndim == 2:
-            audio = audio[:, 0]
-
-        # нативный sr (как реально пишет устройство)
         src_sr = self._native_sr or SAMPLE_RATE
-        duration = len(audio) / src_sr
+        duration = len(carry) / src_sr
         if duration < 0.3:
             print("[·] Too short (<0.3s)")
             return None
 
-        # простой ресемплинг до SAMPLE_RATE (16000) — линейная интерполяция
-        if src_sr != SAMPLE_RATE:
-            new_len = int(round(len(audio) * SAMPLE_RATE / src_sr))
-            if new_len > 1:
-                old_idx = self.np.linspace(0, len(audio) - 1, new_len)
-                audio = self.np.interp(
-                    old_idx, self.np.arange(len(audio)), audio
-                ).astype(self.np.int16)
-
-        # float32 [-1..1] — формат, который принимают и mlx_whisper, и
-        # faster-whisper напрямую (без временного WAV на диске)
-        audio_f = audio.astype(self.np.float32) / 32768.0
+        audio_f = self._resample_16k(carry)
 
         # ── защита от «Thank you»-галлюцинации Whisper ────────────────────
-        # Если в записи фактически только тишина — не отправляем на модель.
-        # Используем RMS (среднеквадратичное значение) и пиковое значение.
+        # Если в остатке фактически только тишина — не отправляем на модель.
         try:
             rms = float(self.np.sqrt(self.np.mean(audio_f * audio_f)))
             peak = float(self.np.max(self.np.abs(audio_f)))
@@ -310,8 +362,6 @@ class Recorder:
 
         log(f"[a] длительность={duration:.2f}s, RMS={rms:.4f}, peak={peak:.4f}")
 
-        # Эмпирические пороги: если и RMS<0.003 и peak<0.02 — это тишина
-        # (даже самый тихий шёпот даёт RMS ~0.005, peak ~0.05).
         if rms < 0.003 and peak < 0.02:
             print("[·] Silence — skipping (guard against 'Thank you' hallucination)")
             return None
@@ -397,6 +447,9 @@ class MLXTranscriber:
         kwargs = dict(
             path_or_hf_repo=self.model,
             word_timestamps=False,
+            # НЕ подаём предыдущий текст как контекст: именно это на длинных
+            # монологах с паузами срывает Whisper в петлю «только ли только ли…»
+            condition_on_previous_text=False,
         )
         if lang:
             kwargs["language"] = lang
@@ -451,6 +504,8 @@ class FasterWhisperTranscriber:
             # greedy: для диктовки ~2x быстрее beam search при неотличимом
             # качестве на коротких фразах
             beam_size=1,
+            # см. MLXTranscriber: гасит петли-повторы на длинных монологах
+            condition_on_previous_text=False,
             initial_prompt=initial_prompt or None,
         )
         if info and not lang:
@@ -1013,8 +1068,9 @@ def run_app(args):
                     return
                 # если прямо сейчас идёт запись на старой клавише — чисто
                 # стопаем без транскрипции (через управляющий поток)
-                if is_down["v"]:
-                    is_down["v"] = False
+                if gr.is_recording:
+                    _cancel_pending_timer()
+                    gr.mode = "idle"
                     ctrl.put("abort")
                 current_hotkey["value"] = name
                 hotkey_obj_holder["key"] = new_key
@@ -1038,7 +1094,10 @@ def run_app(args):
                 level = max(0.0, min(1.0, recorder.level * 6))
                 n = max(1, int(level * 5))
                 blink = "🔴" if int(now * 2) % 2 == 0 else "⭕"
-                self.title = f"{blink} {'▮' * n}{'▯' * (5 - n)}"
+                bars = f"{'▮' * n}{'▯' * (5 - n)}"
+                # в hands-free клавиша свободна — помечаем ∞, чтобы было видно,
+                # что запись идёт сама и её надо остановить тапом
+                self.title = f"{blink}∞ {bars}" if gr.is_handsfree else f"{blink} {bars}"
             elif state["value"] == "transcribing":
                 dots = "." * (int(now * 2) % 4)
                 self.title = f"⏳ transcribing{dots}"
@@ -1050,16 +1109,15 @@ def run_app(args):
         def _watchdog_tick(self, now):
             """Страховка от «вечной записи».
 
-            1) Потерянное отпускание: событие release может не дойти
-               (secure input, отключённый event tap) — сверяем наше
-               представление с физическим состоянием клавиши через Quartz
-               и останавливаем запись сами.
+            1) Потерянное отпускание в push-to-talk: событие release может не
+               дойти (secure input, отключённый event tap) — сверяем с
+               физическим состоянием клавиши через Quartz и останавливаем
+               сами. В hands-free клавиша отпущена легально — не трогаем.
             2) Зависший stop: если после запроса остановки PortAudio молчит
-               дольше 5с — хотя бы честно сообщаем в лог и чиним UI.
+               дольше 5с — честно сообщаем в лог и чиним UI.
             """
-            if state["value"] != "recording":
-                return
-            if is_down["v"] and watchdog["trusted"]:
+            # 1) только в режиме удержания (ptt)
+            if gr.mode == "ptt" and watchdog["trusted"]:
                 if _key_is_down(watchdog["vk"]) is False:
                     watchdog["misses"] += 1
                     if watchdog["misses"] >= 3:  # ~0.9с подряд «не нажата»
@@ -1067,19 +1125,18 @@ def run_app(args):
                             "[watchdog] hotkey released but no release event "
                             "arrived (lost by event tap?) — stopping recording"
                         )
-                        finish_recording("watchdog")
+                        _handle_release(now)
                 else:
                     watchdog["misses"] = 0
-            elif not is_down["v"] and watchdog["stop_at"] is not None:
-                if now - watchdog["stop_at"] > 5.0:
-                    log(
-                        "[watchdog] recorder.stop still running 5s after "
-                        "request — PortAudio hung; restart the app if the "
-                        "mic stops responding"
-                    )
-                    watchdog["stop_at"] = None
-                    play_sound(SOUND_ERROR)
-                    state["value"] = "idle"
+            # 2) зависший recorder.stop
+            if watchdog["stop_at"] is not None and now - watchdog["stop_at"] > 5.0:
+                log(
+                    "[watchdog] recorder.stop still running 5s after request — "
+                    "PortAudio hung; restart the app if the mic stops responding"
+                )
+                watchdog["stop_at"] = None
+                play_sound(SOUND_ERROR)
+                state["value"] = "idle"
 
         def toggle_enabled(self, _):
             enabled["value"] = not enabled["value"]
@@ -1099,77 +1156,101 @@ def run_app(args):
         def quit_app(self, _):
             rumps.quit_application()
 
+    # накопленные транскрипты чанков по сессиям: sid → [str, ...]
+    session_parts: dict = {}
+
+    def _wait_transcriber():
+        tr = get_transcriber()
+        # ждём, пока фоновый _load скачает/прогреет модель (без жёсткого
+        # таймаута: первое скачивание может занять минуты)
+        while tr is None and transcriber_holder["loading"]:
+            time.sleep(0.1)
+            tr = transcriber_holder["obj"]
+        return tr
+
     def worker():
         while True:
-            audio = jobs.get()
-            if audio is None:
+            job = jobs.get()
+            if job is None:
                 return
+            audio = job.get("audio")
+            sid = job.get("sid")
+            final = job.get("final", True)
             try:
-                state["value"] = "transcribing"
-                tr = get_transcriber()
-                # ждём, пока фоновый _load скачает/прогреет модель (без
-                # жёсткого таймаута: первое скачивание может занять минуты)
-                while tr is None and transcriber_holder["loading"]:
-                    time.sleep(0.1)
-                    tr = transcriber_holder["obj"]
+                if final:
+                    state["value"] = "transcribing"
+                tr = _wait_transcriber()
                 if tr is None:
                     play_sound(SOUND_ERROR)
                     notify("Voice Type", "Model not loaded")
+                    session_parts.pop(sid, None)
                     continue
-                t0 = time.time()
-                # подхватываем правки словаря из файла (Edit vocabulary…) на лету
-                vocabulary["value"] = config.load()["vocabulary"]
-                vocab_prompt = ", ".join(vocabulary["value"]) or None
-                # передаём текущий выбранный язык (None = auto) и словарь-bias
-                text = tr.transcribe(
-                    audio,
-                    language=current_lang["value"],
-                    initial_prompt=vocab_prompt,
-                )
-                dt = time.time() - t0
-                if text and is_hallucination(text):
-                    print(f"[·] ({dt:.1f}s) Whisper hallucination, skipping: {text!r}")
-                    text = ""
-                if text and smart_mode["value"] != "raw":
+
+                # ── транскрипция куска (если он есть) ──────────────────────
+                if audio is not None:
+                    t0 = time.time()
+                    vocabulary["value"] = config.load()["vocabulary"]
+                    vocab_prompt = ", ".join(vocabulary["value"]) or None
+                    text = tr.transcribe(
+                        audio,
+                        language=current_lang["value"],
+                        initial_prompt=vocab_prompt,
+                    )
+                    dt = time.time() - t0
+                    if text and is_hallucination(text):
+                        print(f"[·] ({dt:.1f}s) hallucination, skipping: {text!r}")
+                        text = ""
+                    if text:
+                        session_parts.setdefault(sid, []).append(text)
+                        tag = "final" if final else "chunk"
+                        log(f"[·] ({dt:.1f}s) {tag}: {text}")
+
+                if not final:
+                    continue  # промежуточный чанк — просто накопили, ждём дальше
+
+                # ── финализация сессии: склейка + polish + доставка ───────
+                parts = session_parts.pop(sid, [])
+                full = streaming.join_parts(parts)
+                if full and smart_mode["value"] != "raw":
                     if not polisher.is_loaded():
                         notify("Voice Type", "Загружаю LLM… (первый раз)")
                     t1 = time.time()
                     # при Auto берём язык, который определил Whisper, — без
                     # него маленькая LLM может перевести текст на английский
                     polish_lang = current_lang["value"] or tr.last_language
-                    text = polish_text_safe(
+                    full = polish_text_safe(
                         polisher,
-                        text,
+                        full,
                         smart_mode["value"],
                         polish_lang,
                         vocabulary["value"],
                     )
                     print(f"[i] polished ({smart_mode['value']}, {time.time() - t1:.1f}s)")
-                if text:
-                    log(f"[✓] ({dt:.1f}s) copied: {text}")
-                    last_text["value"] = text
-                    history_items["value"] = history.add(text)
+
+                if full:
+                    log(f"[✓] copied: {full}")
+                    last_text["value"] = full
+                    history_items["value"] = history.add(full)
                     menu_dirty["value"] = True
-                    play_sound(SOUND_DONE)  # сигнал: распознано и в буфере
+                    play_sound(SOUND_DONE)
                     deliver_text(
-                        text,
+                        full,
                         do_paste=not args.no_paste,
-                        # по умолчанию буфер НЕ восстанавливается:
-                        # распознанный текст остаётся доступен для Cmd+V вручную
                         restore_clipboard=args.restore_clipboard,
                     )
-                    # показываем «✓ в буфере» в menubar 2 секунды
                     done_until["ts"] = time.time() + 2.0
                     if args.notify:
-                        preview = text if len(text) < 120 else text[:117] + "…"
+                        preview = full if len(full) < 120 else full[:117] + "…"
                         notify("Voice Type", preview)
                 else:
                     print("[·] Empty.")
             except Exception as e:
                 play_sound(SOUND_ERROR)
                 print(f"[!] {e}", file=sys.stderr)
+                session_parts.pop(sid, None)
             finally:
-                state["value"] = "idle"
+                if final:
+                    state["value"] = "idle"
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -1186,73 +1267,131 @@ def run_app(args):
             return parse_hotkey("right_option")
 
     hotkey_obj_holder = {"key": _resolve_hotkey(current_hotkey["value"])}
-    is_down = {"v": False}
+    # распознаватель жестов (hold / double-tap / tap) и id текущей сессии
+    gr = gestures.GestureRecognizer()
+    session = {"id": 0, "active": False, "start_ts": 0.0}
+    pending_timer = {"t": None}
+    # авто-стоп hands-free-записи, если о ней забыли (страховка)
+    MAX_SESSION_SEC = 300.0
 
     def control_loop():
         """Все операции с PortAudio — в одном фоновом потоке.
 
-        Раньше recorder.start()/stop() выполнялись прямо в колбэке pynput
-        (поток event tap). Когда CoreAudio «протухает», открытие/остановка
-        аудиопотока блокируется на секунды, macOS отключает не отвечающий
-        event tap (kCGEventTapDisabledByTimeout) — отпускание клавиши
-        теряется, и приложение навсегда остаётся в состоянии «слушаю».
-        Здесь колбэки клавиш только кладут команду в очередь и мгновенно
-        возвращаются.
+        Колбэки клавиш только кладут команду в очередь и мгновенно
+        возвращаются (иначе «протухший» CoreAudio блокирует поток event tap,
+        macOS его отключает, и отпускание клавиши теряется). Этот же поток
+        периодически (по таймауту 0.5с) отрезает чанк уже сказанного и шлёт
+        его на транскрипцию — так длинная диктовка переводится «под капотом»,
+        пока вы говорите, и в конце ждать почти нечего.
         """
         while True:
-            cmd = ctrl.get()
+            try:
+                cmd = ctrl.get(timeout=0.5)
+            except queue.Empty:
+                cmd = None
+
             if cmd == "start":
                 t0 = time.time()
                 try:
                     recorder.start()
+                    session["id"] += 1
+                    session["active"] = True
+                    session["start_ts"] = time.time()
                     dt = time.time() - t0
                     if dt > 0.5:
                         log(f"[rec] start took {dt:.2f}s (stale CoreAudio?)")
                 except Exception as e:
                     log(f"[!] recorder.start failed ({time.time() - t0:.2f}s): {e}")
                     play_sound(SOUND_ERROR)
-                    is_down["v"] = False
+                    session["active"] = False
                     state["value"] = "idle"
             elif cmd in ("stop", "abort"):
+                sid = session["id"]
+                session["active"] = False
                 t0 = time.time()
-                audio = recorder.stop()
+                rest = recorder.stop()
                 dt = time.time() - t0
                 watchdog["stop_at"] = None
                 if dt > 1.0:
                     log(f"[!] recorder.stop took {dt:.2f}s (stale CoreAudio?)")
-                # именно `is not None`: numpy-массив нельзя проверять как bool
-                if cmd == "stop" and audio is not None:
-                    jobs.put(audio)
-                else:
+                if cmd == "stop":
+                    # финальное задание всегда (даже если rest пуст) — worker
+                    # склеит уже накопленные чанки и доставит текст
+                    jobs.put({"audio": rest, "sid": sid, "final": True})
+                else:  # abort — выбрасываем сессию без доставки
+                    session_parts.pop(sid, None)
                     state["value"] = "idle"
-                    if cmd == "stop":
-                        print("[·] Too short.")
 
-    def finish_recording(source: str):
-        """Единая точка завершения записи (реальное отпускание или watchdog)."""
-        is_down["v"] = False
-        watchdog["stop_at"] = time.time()
-        play_sound(SOUND_STOP)
-        if source != "key release":
-            log(f"[rec] stop requested by {source}")
-        ctrl.put("stop")
+            # пока идёт запись — пробуем отрезать готовый кусок в паузе
+            if session["active"]:
+                if time.time() - session["start_ts"] > MAX_SESSION_SEC:
+                    log("[rec] hands-free session hit 5-min cap — auto-stopping")
+                    ctrl.put("stop")
+                    continue
+                try:
+                    chunk = recorder.take_chunk(
+                        min_sec=streaming.CHUNK_SEC,
+                        target_sec=streaming.CHUNK_SEC,
+                        hard_max_sec=streaming.CHUNK_HARD_MAX_SEC,
+                    )
+                except Exception as e:
+                    chunk = None
+                    log(f"[!] take_chunk: {e}")
+                if chunk is not None and not streaming.is_silent(chunk):
+                    jobs.put(
+                        {"audio": chunk, "sid": session["id"], "final": False}
+                    )
+
+    def _cancel_pending_timer():
+        if pending_timer["t"] is not None:
+            pending_timer["t"].cancel()
+            pending_timer["t"] = None
+
+    def _arm_pending_timer():
+        _cancel_pending_timer()
+
+        def _fire():
+            actions = gr.on_timeout(time.time())
+            _apply_actions(actions, None)
+
+        t = threading.Timer(gr.window, _fire)
+        t.daemon = True
+        pending_timer["t"] = t
+        t.start()
+
+    def _apply_actions(actions, key):
+        for a in actions:
+            if a == gestures.START:
+                state["value"] = "recording"
+                # калибровка watchdog: сразу после реального нажатия Quartz
+                # обязан видеть клавишу нажатой — иначе опросу верить нельзя
+                # (например, fn) и watchdog для этой клавиши отключается
+                vk = _hotkey_vk(key) if key is not None else None
+                watchdog["vk"] = vk
+                watchdog["trusted"] = vk is not None and _key_is_down(vk) is True
+                watchdog["misses"] = 0
+                play_sound(SOUND_START)
+                ctrl.put("start")
+            elif a == gestures.FINALIZE:
+                watchdog["stop_at"] = time.time()
+                play_sound(SOUND_STOP)
+                ctrl.put("stop")
+            elif a == gestures.ARM_TIMER:
+                _arm_pending_timer()
+            elif a == gestures.DISARM_TIMER:
+                _cancel_pending_timer()
+                notify("Voice Type", "Hands-free — tap the key again to stop")
+
+    def _handle_release(now):
+        """Обработать отпускание хоткея (реальное или от watchdog)."""
+        _apply_actions(gr.on_release(now), None)
 
     def on_press(key):
         try:
             if not enabled["value"]:
                 return
-            if key == hotkey_obj_holder["key"] and not is_down["v"]:
-                is_down["v"] = True
-                state["value"] = "recording"
-                # калибровка watchdog: сразу после реального нажатия Quartz
-                # обязан видеть клавишу нажатой — иначе опросу верить нельзя
-                # (например, для fn) и watchdog для этой клавиши отключается
-                vk = _hotkey_vk(key)
-                watchdog["vk"] = vk
-                watchdog["trusted"] = vk is not None and _key_is_down(vk) is True
-                watchdog["misses"] = 0
-                play_sound(SOUND_START)
-                ctrl.put("start")  # не блокируем поток event tap
+            if key == hotkey_obj_holder["key"]:
+                _apply_actions(gr.on_press(time.time()), key)
         except Exception as e:
             log(f"[!] on_press: {e}")
 
@@ -1260,8 +1399,8 @@ def run_app(args):
         try:
             if not enabled["value"]:
                 return
-            if key == hotkey_obj_holder["key"] and is_down["v"]:
-                finish_recording("key release")
+            if key == hotkey_obj_holder["key"]:
+                _handle_release(time.time())
         except Exception as e:
             log(f"[!] on_release: {e}")
 

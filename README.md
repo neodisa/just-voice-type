@@ -1,7 +1,7 @@
 # Just Voice Type
 
 **Local push-to-talk dictation for macOS**, powered by Whisper (Apple Silicon, MLX).
-Hold Right Option, speak, release — your text is pasted wherever the cursor is. No cloud, no API keys, no subscriptions.
+Hold Right Option and speak, or **double-tap** it for hands-free — your text is pasted wherever the cursor is. No cloud, no API keys, no subscriptions.
 
 > A free, fully on-device alternative to Wispr Flow / Superwhisper. Works in English, Russian, and any other language Whisper supports.
 
@@ -9,6 +9,8 @@ Hold Right Option, speak, release — your text is pasted wherever the cursor is
 
 - 🎙 **Menubar icon** with live status (idle, REC, processing, paused)
 - ⌨️ **Push-to-talk** on any system key — switch it from the **Hotkey** menu (Right Option, Left Option, Fn, Cmd, Ctrl, Shift, F13–F19), applied instantly, no restart.
+- 🙌 **Hands-free mode** — **double-tap** the hotkey and it keeps listening with the key released; **tap once** to stop. No need to hold the key through a long monologue. The menubar shows `🔴∞` while it's on. (Auto-stops after 5 min as a safety net.)
+- 🌊 **Streaming transcription** — while you're still talking, long dictations are transcribed in the background in ~20s chunks, sliced at pauses so words aren't cut. By the time you stop there's almost nothing left to wait for — no more minute-long "frozen" transcribe on long recordings, and no runaway Whisper repetition loops.
 - 🧠 **MLX Whisper** (default `large-v3` — most accurate, and on Apple Silicon dictation time is dominated by fixed overhead, so the big model costs almost nothing extra). Falls back to `faster-whisper` on CPU. Models warm up in the background at startup, so the first dictation is as fast as the rest.
 - 🔀 **Switch models from the menu** — pick `large-v3` (accurate, default), `large-v3-turbo` (faster decode, noticeably weaker on Russian/Ukrainian), `medium`, or `small` on the fly, no restart. Your choice persists across restarts.
 - 🌐 **Pick the language from the menu** — your working ("favorite") languages plus **Auto** sit at the top; choose one to make it active. **All languages…** lists the full Whisper set (~99) where you check which languages to keep as favorites.
@@ -18,6 +20,18 @@ Hold Right Option, speak, release — your text is pasted wherever the cursor is
 - 🕘 **History menu** — the last 15 dictations, persisted across restarts (50 kept on disk in `~/.config/just-voice-type/history.json`); click any entry to copy it back to the clipboard
 - 🔔 macOS sounds on start/stop, optional notifications
 - 🚀 **Autostart** as a LaunchAgent — the icon shows up right after login
+
+## Gestures
+
+One hotkey, three gestures:
+
+| Gesture | What it does |
+|---|---|
+| **Hold** (press, speak, release) | Push-to-talk — records while held, transcribes on release. |
+| **Double-tap** | Hands-free — keeps recording with the key released. The menubar shows `🔴∞`. |
+| **Single tap** (while hands-free) | Stops hands-free recording and transcribes. |
+
+A quick single tap that *isn't* followed by a second tap is treated as a normal short dictation — recording keeps going for half a second so nothing is lost while it waits to see if you're double-tapping.
 
 ## Smart modes
 
