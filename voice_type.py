@@ -382,6 +382,42 @@ class Recorder:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def load_wav_16k(wav_path: str):
+    """Read a WAV into a float32 mono 16 kHz numpy array WITHOUT ffmpeg.
+
+    Recording is already 16 kHz, but resample linearly if the source differs.
+    Keeps the app fully offline/self-contained (no ffmpeg in the .app PATH).
+    """
+    import wave as _wave
+
+    import numpy as _np
+
+    with _wave.open(wav_path, "rb") as wf:
+        sr = wf.getframerate()
+        ch = wf.getnchannels()
+        sw = wf.getsampwidth()
+        raw = wf.readframes(wf.getnframes())
+
+    if sw == 2:
+        a = _np.frombuffer(raw, dtype=_np.int16).astype(_np.float32) / 32768.0
+    elif sw == 4:
+        a = _np.frombuffer(raw, dtype=_np.int32).astype(_np.float32) / 2147483648.0
+    else:  # 8-bit unsigned
+        a = _np.frombuffer(raw, dtype=_np.uint8).astype(_np.float32) / 128.0 - 1.0
+
+    if ch > 1:
+        a = a.reshape(-1, ch).mean(axis=1)
+
+    if sr != 16000 and len(a) > 1:
+        new_len = int(round(len(a) * 16000 / sr))
+        a = _np.interp(
+            _np.linspace(0, len(a), new_len, endpoint=False),
+            _np.arange(len(a)),
+            a,
+        )
+    return a.astype(_np.float32)
+
+
 class MLXTranscriber:
     def __init__(self, model: str, language: Optional[str]):
         try:
@@ -396,44 +432,6 @@ class MLXTranscriber:
         # язык последней транскрипции (детект Whisper) — нужен полировщику,
         # чтобы LLM не переводила текст, когда выбран режим Auto
         self.last_language: Optional[str] = None
-
-    @staticmethod
-    def _load_audio(wav_path: str):
-        """Читаем WAV в float32-моно 16кГц БЕЗ ffmpeg.
-
-        mlx_whisper.transcribe умеет принимать numpy-массив напрямую; так мы не
-        зависим от внешнего ffmpeg (которого нет в PATH у .app) и остаёмся
-        полностью офлайн/самодостаточными. Запись уже идёт в 16кГц, но на всякий
-        случай ресемплим линейно, если sr отличается.
-        """
-        import wave as _wave
-
-        import numpy as _np
-
-        with _wave.open(wav_path, "rb") as wf:
-            sr = wf.getframerate()
-            ch = wf.getnchannels()
-            sw = wf.getsampwidth()
-            raw = wf.readframes(wf.getnframes())
-
-        if sw == 2:
-            a = _np.frombuffer(raw, dtype=_np.int16).astype(_np.float32) / 32768.0
-        elif sw == 4:
-            a = _np.frombuffer(raw, dtype=_np.int32).astype(_np.float32) / 2147483648.0
-        else:  # 8-bit unsigned
-            a = _np.frombuffer(raw, dtype=_np.uint8).astype(_np.float32) / 128.0 - 1.0
-
-        if ch > 1:
-            a = a.reshape(-1, ch).mean(axis=1)
-
-        if sr != 16000 and len(a) > 1:
-            new_len = int(round(len(a) * 16000 / sr))
-            a = _np.interp(
-                _np.linspace(0, len(a), new_len, endpoint=False),
-                _np.arange(len(a)),
-                a,
-            )
-        return a.astype(_np.float32)
 
     def transcribe(
         self,
@@ -456,7 +454,7 @@ class MLXTranscriber:
         if initial_prompt:
             kwargs["initial_prompt"] = initial_prompt
         if isinstance(audio, str):
-            audio = self._load_audio(audio)
+            audio = load_wav_16k(audio)
         result = self._transcribe(audio, **kwargs)
         # печатаем определённый язык в лог (полезно для дебага)
         detected = result.get("language")
