@@ -48,6 +48,10 @@ Notes:
 - Polishing **never blocks paste**: on any error or timeout it falls back to the raw Whisper text.
 - **Edit vocabulary…** opens `config.json`; add your recurring terms/names to the `vocabulary` list. They feed both Whisper's `initial_prompt` (so it mishears them less) and the LLM (so it corrects them from context).
 
+> **Parakeet note:** Parakeet auto-detects the language and doesn't take an
+> `initial_prompt`, so the vocabulary list doesn't bias it the way it biases
+> Whisper. The LLM correction pass (Clean/Prompt) still applies your vocabulary.
+
 ## Requirements
 
 - macOS on Apple Silicon (M1/M2/M3/M4)
@@ -137,6 +141,7 @@ The fastest way is the **Model** submenu in the 🎙 menubar icon — switch mod
 | Model | Notes |
 |---|---|
 | 🎯 `large-v3` | Most accurate. **Default.** On Apple Silicon it's barely slower than turbo for dictation-length audio. (~3 GB) |
+| ⚡ `parakeet-tdt-0.6b-v3` | ~10× faster than Whisper (FastConformer-TDT). Multilingual incl. RU/UK/EN, auto-detects language. No vocabulary bias / no forced language. (~600 MB) |
 | ⚡ `large-v3-turbo` | Faster decode, but noticeably weaker on Russian/Ukrainian morphology. (~1.5 GB) |
 | `medium` | Balanced. |
 | `small` | Fastest, less accurate (weak for non-English). |
