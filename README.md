@@ -51,6 +51,9 @@ Notes:
 > **Parakeet note:** Parakeet auto-detects the language and doesn't take an
 > `initial_prompt`, so the vocabulary list doesn't bias it the way it biases
 > Whisper. The LLM correction pass (Clean/Prompt) still applies your vocabulary.
+> Also, because Parakeet doesn't report the detected language, using it with
+> language **Auto** *and* a non-Raw Smart mode can let the LLM translate your
+> text to English — pick your language explicitly (not Auto) to avoid that.
 
 ## Requirements
 
