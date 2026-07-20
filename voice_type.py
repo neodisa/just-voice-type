@@ -574,11 +574,12 @@ class ParakeetTranscriber:
             print(f"[!] parakeet warm-up failed: {e}", file=sys.stderr)
 
 
-def transcriber_class_for(model_id: str, engine: str):
+def transcriber_class_for(model_id: str, engine: str) -> type:
     """Pick the transcriber class by model id. A model id containing
-    "parakeet" always routes to ParakeetTranscriber regardless of engine;
-    otherwise the mlx/faster engine flag decides the Whisper backend."""
-    if "parakeet" in model_id:
+    "parakeet" (case-insensitive) always routes to ParakeetTranscriber
+    regardless of engine; otherwise the mlx/faster engine flag decides the
+    Whisper backend."""
+    if "parakeet" in model_id.lower():
         return ParakeetTranscriber
     return MLXTranscriber if engine == "mlx" else FasterWhisperTranscriber
 

@@ -88,6 +88,11 @@ class TestTranscriberClassFor(unittest.TestCase):
             "mlx-community/parakeet-tdt-0.6b-v3", "faster")
         self.assertIs(cls, voice_type.ParakeetTranscriber)
 
+    def test_parakeet_match_is_case_insensitive(self):
+        cls = voice_type.transcriber_class_for(
+            "mlx-community/Parakeet-TDT-0.6b-v3", "mlx")
+        self.assertIs(cls, voice_type.ParakeetTranscriber)
+
 
 if __name__ == "__main__":
     unittest.main()
