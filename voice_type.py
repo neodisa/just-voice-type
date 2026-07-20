@@ -521,6 +521,57 @@ class FasterWhisperTranscriber:
             print(f"[!] whisper warm-up failed: {e}", file=sys.stderr)
 
 
+class ParakeetTranscriber:
+    """NVIDIA Parakeet-TDT-0.6b-v3 via parakeet-mlx — fast, multilingual
+    (auto-detects; supports ru/uk/en among 25 European languages)."""
+
+    def __init__(self, model: str, language: Optional[str]):
+        try:
+            from parakeet_mlx import from_pretrained  # type: ignore
+        except ImportError as e:
+            print("\n[!] pip install parakeet-mlx\n", file=sys.stderr)
+            raise SystemExit(1) from e
+        self._model = from_pretrained(model)
+        self.model = model
+        self.language = language
+        self.last_language: Optional[str] = None
+
+    def transcribe(
+        self,
+        audio,
+        language: Optional[str] = None,
+        initial_prompt: Optional[str] = None,
+    ) -> str:
+        """audio: float32 mono 16 kHz numpy array or path to WAV.
+
+        `language` and `initial_prompt` are accepted for interface parity but
+        IGNORED: Parakeet auto-detects the language and supports neither a
+        language force nor prompt biasing. We feed a precomputed log-mel to
+        `generate()` so we never hit parakeet-mlx's ffmpeg-based file path.
+        """
+        import mlx.core as mx  # type: ignore
+        from parakeet_mlx.audio import get_logmel  # type: ignore
+
+        if isinstance(audio, str):
+            audio = load_wav_16k(audio)
+        mel = get_logmel(mx.array(audio), self._model.preprocessor_config)
+        results = self._model.generate(mel)
+        text = (results[0].text if results else "") or ""
+        # Parakeet returns no language code; best-effort for the polisher.
+        self.last_language = language if language is not None else self.language
+        return text.strip()
+
+    def warm_up(self) -> None:
+        """Run 0.5s of silence through the model to load weights + compile
+        Metal kernels off the first real dictation. Best-effort, never raises."""
+        import numpy as np
+
+        try:
+            self.transcribe(np.zeros(SAMPLE_RATE // 2, dtype=np.float32))
+        except Exception as e:
+            print(f"[!] parakeet warm-up failed: {e}", file=sys.stderr)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Вставка
 # ──────────────────────────────────────────────────────────────────────────────

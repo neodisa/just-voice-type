@@ -53,5 +53,16 @@ class TestLoadWav16k(unittest.TestCase):
         self.assertAlmostEqual(len(a), frames, delta=2)
 
 
+class TestParakeetInterface(unittest.TestCase):
+    def test_class_exists_with_matching_interface(self):
+        import inspect
+
+        cls = voice_type.ParakeetTranscriber
+        params = list(inspect.signature(cls.transcribe).parameters)
+        self.assertIn("language", params)
+        self.assertIn("initial_prompt", params)
+        self.assertTrue(hasattr(cls, "warm_up"))
+
+
 if __name__ == "__main__":
     unittest.main()
