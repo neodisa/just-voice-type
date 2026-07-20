@@ -32,6 +32,7 @@ DEFAULTS = {
 }
 
 SMART_MODES = ("raw", "clean", "prompt")
+INSERT_MODES = ("paste", "ax")
 
 
 def _defaults_copy() -> "dict[str, Any]":
@@ -94,9 +95,9 @@ def _validate(raw: Any) -> "dict[str, Any]":
     if isinstance(model, str) and model.strip():
         cfg["model"] = model.strip()
 
-    mode = raw.get("insert_mode")
-    if mode in ("paste", "ax"):
-        cfg["insert_mode"] = mode
+    imode = raw.get("insert_mode")
+    if isinstance(imode, str) and imode in INSERT_MODES:
+        cfg["insert_mode"] = imode
     else:
         cfg["insert_mode"] = DEFAULTS["insert_mode"]
 
