@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 import wave
@@ -21,6 +22,7 @@ class TestLoadWav16k(unittest.TestCase):
         data = (np.sin(np.linspace(0, 10, sr)) * 30000).astype(np.int16)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             path = f.name
+        self.addCleanup(os.unlink, path)
         _write_wav(path, data.tobytes(), sr)
         a = voice_type.load_wav_16k(path)
         self.assertEqual(a.dtype, np.float32)
@@ -32,9 +34,23 @@ class TestLoadWav16k(unittest.TestCase):
         data = (np.ones(sr) * 10000).astype(np.int16)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             path = f.name
+        self.addCleanup(os.unlink, path)
         _write_wav(path, data.tobytes(), sr)
         a = voice_type.load_wav_16k(path)
         self.assertAlmostEqual(len(a), 16000, delta=4)
+
+    def test_downmixes_stereo_to_mono(self):
+        sr = 16000
+        frames = sr
+        mono = (np.sin(np.linspace(0, 10, frames)) * 20000).astype(np.int16)
+        stereo = np.repeat(mono, 2)  # interleaved L=R
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            path = f.name
+        self.addCleanup(os.unlink, path)
+        _write_wav(path, stereo.tobytes(), sr, sampwidth=2, channels=2)
+        a = voice_type.load_wav_16k(path)
+        self.assertEqual(a.dtype, np.float32)
+        self.assertAlmostEqual(len(a), frames, delta=2)
 
 
 if __name__ == "__main__":
