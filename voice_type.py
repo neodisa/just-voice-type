@@ -844,11 +844,11 @@ def run_app(args):
     favorites = {"value": list(cfg["favorite_languages"])}
     current_lang = {"value": cfg["active_language"]}  # None = auto
     current_hotkey = {"value": cfg["hotkey"]}
-    # модель: явный CLI-флаг → конфиг (выбор из меню) → точный large-v3.
-    # На Apple Silicon время диктовки почти не зависит от размера модели
-    # (доминирует фиксированный оверхед), поэтому по умолчанию — точность.
+    # модель: явный CLI-флаг → конфиг (выбор из меню) → дефолт движка.
+    # По умолчанию на Apple Silicon — Parakeet: ~10× быстрее Whisper при
+    # сопоставимой точности на ru/uk/en. CPU-фоллбэк остаётся на large-v3.
     default_model = (
-        "mlx-community/whisper-large-v3-mlx" if args.engine == "mlx" else "large-v3"
+        "mlx-community/parakeet-tdt-0.6b-v3" if args.engine == "mlx" else "large-v3"
     )
     current_model["value"] = args.model or cfg["model"] or default_model
     smart_mode = {"value": cfg["smart_mode"]}
@@ -879,8 +879,8 @@ def run_app(args):
 
     # модели для подменю «Model» (только для движка mlx).
     MLX_MODELS = [
-        ("🎯 Large v3 — most accurate (default)", "mlx-community/whisper-large-v3-mlx"),
-        ("⚡ Parakeet v3 — fastest (RU/UK/EN)", "mlx-community/parakeet-tdt-0.6b-v3"),
+        ("⚡ Parakeet v3 — fastest, default (RU/UK/EN)", "mlx-community/parakeet-tdt-0.6b-v3"),
+        ("🎯 Large v3 — most accurate", "mlx-community/whisper-large-v3-mlx"),
         ("⚡ Turbo — faster decode, weaker RU/UK", "mlx-community/whisper-large-v3-turbo"),
         ("Medium — balanced", "mlx-community/whisper-medium-mlx"),
         ("Small — fastest", "mlx-community/whisper-small-mlx"),

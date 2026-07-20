@@ -11,8 +11,8 @@ Hold Right Option and speak, or **double-tap** it for hands-free — your text i
 - ⌨️ **Push-to-talk** on any system key — switch it from the **Hotkey** menu (Right Option, Left Option, Fn, Cmd, Ctrl, Shift, F13–F19), applied instantly, no restart.
 - 🙌 **Hands-free mode** — **double-tap** the hotkey and it keeps listening with the key released; **tap once** to stop. No need to hold the key through a long monologue. The menubar shows `🔴∞` while it's on. (Auto-stops after 5 min as a safety net.)
 - 🌊 **Streaming transcription** — while you're still talking, long dictations are transcribed in the background in ~20s chunks, sliced at pauses so words aren't cut. By the time you stop there's almost nothing left to wait for — no more minute-long "frozen" transcribe on long recordings, and no runaway Whisper repetition loops.
-- 🧠 **MLX Whisper** (default `large-v3` — most accurate, and on Apple Silicon dictation time is dominated by fixed overhead, so the big model costs almost nothing extra). Falls back to `faster-whisper` on CPU. Models warm up in the background at startup, so the first dictation is as fast as the rest.
-- 🔀 **Switch models from the menu** — pick `large-v3` (accurate, default), `large-v3-turbo` (faster decode, noticeably weaker on Russian/Ukrainian), `medium`, or `small` on the fly, no restart. Your choice persists across restarts.
+- 🧠 **On-device ASR** — default `parakeet-tdt-0.6b-v3` (NVIDIA Parakeet via MLX): ~10× faster than Whisper, multilingual incl. RU/UK/EN, auto-detects language. Whisper `large-v3` is one menu click away when you want maximum accuracy. Falls back to `faster-whisper` on CPU. Models warm up in the background at startup, so the first dictation is as fast as the rest.
+- 🔀 **Switch models from the menu** — pick `parakeet-v3` (fastest, default), `large-v3` (most accurate), `large-v3-turbo` (faster decode, weaker on Russian/Ukrainian), `medium`, or `small` on the fly, no restart. Your choice persists across restarts.
 - 🌐 **Pick the language from the menu** — your working ("favorite") languages plus **Auto** sit at the top; choose one to make it active. **All languages…** lists the full Whisper set (~99) where you check which languages to keep as favorites.
 - 🪄 **Smart modes** — pick **Raw** (verbatim), **Clean** (strip filler & fix punctuation), or **Prompt** (restructure your dictation into a clear instruction for an AI) from the **Smart** menu. Runs a small on-device LLM (`Qwen2.5-1.5B-Instruct-4bit` via `mlx_lm`) — still no cloud. Add domain terms via **Edit vocabulary…** so misheard names/jargon get fixed and bias Whisper itself.
 - 💾 **Settings persist** across restarts (favorite languages, active language, hotkey, smart mode, vocabulary, model) in `~/.config/just-voice-type/config.json`.
@@ -97,7 +97,7 @@ A 🎙 icon appears in the menubar. Hold Right Option — a capsule with a pulsi
 | Flag | Meaning |
 |---|---|
 | `--engine mlx \| faster` | Backend. Default `mlx` (fastest on Apple Silicon). |
-| `--model <id>` | HF model id. Default `mlx-community/whisper-large-v3-mlx` (overrides the menu choice for this launch). |
+| `--model <id>` | HF model id. Default `mlx-community/parakeet-tdt-0.6b-v3` (overrides the menu choice for this launch). |
 | `--lang en` | Language code. Default `ru`. Use `en`, `de`, `es`, etc. |
 | `--hotkey right_option` | `right_option`, `left_option`, `fn`, `right_shift`, `f13`..`f20`. |
 | `--no-paste` | Don't paste, only copy to clipboard. |
@@ -143,8 +143,8 @@ The fastest way is the **Model** submenu in the 🎙 menubar icon — switch mod
 
 | Model | Notes |
 |---|---|
-| 🎯 `large-v3` | Most accurate. **Default.** On Apple Silicon it's barely slower than turbo for dictation-length audio. (~3 GB) |
-| ⚡ `parakeet-tdt-0.6b-v3` | ~10× faster than Whisper (FastConformer-TDT). Multilingual incl. RU/UK/EN, auto-detects language. No vocabulary bias / no forced language. (~600 MB) |
+| 🎯 `large-v3` | Most accurate. On Apple Silicon it's barely slower than turbo for dictation-length audio. (~3 GB) |
+| ⚡ `parakeet-tdt-0.6b-v3` | **Default.** ~10× faster than Whisper (FastConformer-TDT). Multilingual incl. RU/UK/EN, auto-detects language. No vocabulary bias / no forced language. (~600 MB) |
 | ⚡ `large-v3-turbo` | Faster decode, but noticeably weaker on Russian/Ukrainian morphology. (~1.5 GB) |
 | `medium` | Balanced. |
 | `small` | Fastest, less accurate (weak for non-English). |
