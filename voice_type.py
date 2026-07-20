@@ -574,6 +574,15 @@ class ParakeetTranscriber:
             print(f"[!] parakeet warm-up failed: {e}", file=sys.stderr)
 
 
+def transcriber_class_for(model_id: str, engine: str):
+    """Pick the transcriber class by model id. A model id containing
+    "parakeet" always routes to ParakeetTranscriber regardless of engine;
+    otherwise the mlx/faster engine flag decides the Whisper backend."""
+    if "parakeet" in model_id:
+        return ParakeetTranscriber
+    return MLXTranscriber if engine == "mlx" else FasterWhisperTranscriber
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Вставка
 # ──────────────────────────────────────────────────────────────────────────────
@@ -777,11 +786,10 @@ def run_app(args):
         def _load():
             target = current_model["value"]
             try:
-                # инициируем с None — язык подставляется на каждый запрос
-                if args.engine == "mlx":
-                    obj = MLXTranscriber(target, None)
-                else:
-                    obj = FasterWhisperTranscriber(target, None)
+                # инициируем с None — язык подставляется на каждый запрос;
+                # класс выбираем по id модели (parakeet → ParakeetTranscriber)
+                cls = transcriber_class_for(target, args.engine)
+                obj = cls(target, None)
                 # Прогреваем ДО публикации: скачивание весов, загрузка и
                 # компиляция Metal-кернелов происходят здесь, в фоне. Воркер
                 # ждёт, пока loading=True, так что диктовка во время прогрева

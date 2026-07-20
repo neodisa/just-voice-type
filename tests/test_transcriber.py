@@ -68,5 +68,26 @@ class TestParakeetInterface(unittest.TestCase):
         self.assertTrue(hasattr(voice_type.ParakeetTranscriber, "warm_up"))
 
 
+class TestTranscriberClassFor(unittest.TestCase):
+    def test_parakeet_id_routes_to_parakeet(self):
+        cls = voice_type.transcriber_class_for(
+            "mlx-community/parakeet-tdt-0.6b-v3", "mlx")
+        self.assertIs(cls, voice_type.ParakeetTranscriber)
+
+    def test_whisper_mlx_routes_to_mlx(self):
+        cls = voice_type.transcriber_class_for(
+            "mlx-community/whisper-large-v3-mlx", "mlx")
+        self.assertIs(cls, voice_type.MLXTranscriber)
+
+    def test_faster_engine_routes_to_faster(self):
+        cls = voice_type.transcriber_class_for("large-v3", "faster")
+        self.assertIs(cls, voice_type.FasterWhisperTranscriber)
+
+    def test_parakeet_id_wins_even_on_faster_engine(self):
+        cls = voice_type.transcriber_class_for(
+            "mlx-community/parakeet-tdt-0.6b-v3", "faster")
+        self.assertIs(cls, voice_type.ParakeetTranscriber)
+
+
 if __name__ == "__main__":
     unittest.main()
