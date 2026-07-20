@@ -113,6 +113,18 @@ def play_sound(path: str) -> None:
     )
 
 
+def frontmost_app_pid():
+    """PID of the current frontmost application, or None. AppKit is already
+    loaded in-process by rumps, so this is a safe, instant read."""
+    try:
+        from AppKit import NSWorkspace  # type: ignore
+
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        return int(app.processIdentifier()) if app is not None else None
+    except Exception:
+        return None
+
+
 def notify(title: str, message: str) -> None:
     safe = message.replace('"', '\\"').replace("\n", " ")
     safe_title = title.replace('"', '\\"')
@@ -920,6 +932,8 @@ def run_app(args):
     current_model["value"] = args.model or cfg["model"] or default_model
     smart_mode = {"value": cfg["smart_mode"]}
     insert_mode = {"value": cfg["insert_mode"]}
+    # PID приложения, активного на старте диктовки (для «прилипания» AX-вставки).
+    target_app = {"pid": None}
     vocabulary = {"value": list(cfg["vocabulary"])}
     polisher = polish.Polisher()
 
@@ -1445,6 +1459,7 @@ def run_app(args):
                     session["id"] += 1
                     session["active"] = True
                     session["start_ts"] = time.time()
+                    target_app["pid"] = frontmost_app_pid()
                     dt = time.time() - t0
                     if dt > 0.5:
                         log(f"[rec] start took {dt:.2f}s (stale CoreAudio?)")

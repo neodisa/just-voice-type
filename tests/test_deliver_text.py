@@ -54,5 +54,11 @@ class TestDeliverTextRouting(unittest.TestCase):
         self.assertEqual(self.calls, [("copy", "hi")])
 
 
+class TestFrontmostAppPid(unittest.TestCase):
+    def test_returns_int_or_none(self):
+        pid = voice_type.frontmost_app_pid()
+        self.assertTrue(pid is None or isinstance(pid, int))
+
+
 if __name__ == "__main__":
     unittest.main()
