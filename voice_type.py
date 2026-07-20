@@ -1432,6 +1432,7 @@ def run_app(args):
                         do_paste=not args.no_paste,
                         restore_clipboard=args.restore_clipboard,
                         insert_mode=insert_mode["value"],
+                        target_pid=target_app["pid"],
                     )
                     done_until["ts"] = time.time() + 2.0
                     if args.notify:
