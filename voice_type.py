@@ -914,6 +914,7 @@ def run_app(args):
     )
     current_model["value"] = args.model or cfg["model"] or default_model
     smart_mode = {"value": cfg["smart_mode"]}
+    insert_mode = {"value": cfg["insert_mode"]}
     vocabulary = {"value": list(cfg["vocabulary"])}
     polisher = polish.Polisher()
 
@@ -936,6 +937,7 @@ def run_app(args):
                 "smart_mode": smart_mode["value"],
                 "vocabulary": on_disk["vocabulary"],
                 "model": current_model["value"],
+                "insert_mode": insert_mode["value"],
             }
         )
 
@@ -1048,6 +1050,12 @@ def run_app(args):
             items.append(
                 rumps.MenuItem("Edit vocabulary…", callback=self.edit_vocabulary)
             )
+            ax_item = rumps.MenuItem(
+                "Insert via Accessibility (no clipboard)",
+                callback=self._toggle_insert_mode,
+            )
+            ax_item.state = 1 if insert_mode["value"] == "ax" else 0
+            items.append(ax_item)
             return ("Smart", items)
 
         def _history_menu(self):
@@ -1170,6 +1178,12 @@ def run_app(args):
                 notify("Voice Type", f"Smart → {mode}")
 
             return setter
+
+        def _toggle_insert_mode(self, _):
+            insert_mode["value"] = "ax" if insert_mode["value"] == "paste" else "paste"
+            persist()
+            self._build_menu()
+            print(f"[i] Insert mode: {insert_mode['value']}")
 
         def edit_vocabulary(self, _):
             # словарь правится прямо в конфиг-файле; открываем его в редакторе
@@ -1361,6 +1375,7 @@ def run_app(args):
                         full,
                         do_paste=not args.no_paste,
                         restore_clipboard=args.restore_clipboard,
+                        insert_mode=insert_mode["value"],
                     )
                     done_until["ts"] = time.time() + 2.0
                     if args.notify:
