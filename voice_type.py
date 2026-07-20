@@ -1050,6 +1050,7 @@ def run_app(args):
             items.append(
                 rumps.MenuItem("Edit vocabulary…", callback=self.edit_vocabulary)
             )
+            items.append(None)  # separator: delivery toggle is not a polish preset
             ax_item = rumps.MenuItem(
                 "Insert via Accessibility (no clipboard)",
                 callback=self._toggle_insert_mode,
