@@ -644,10 +644,15 @@ _AX_INSERT_CODE = (
     "    sw = AXUIElementCreateSystemWide()\n"
     "    err, focused = AXUIElementCopyAttributeValue(sw, kAXFocusedUIElementAttribute, None)\n"
     "    if err != 0 or focused is None:\n"
+    "        sys.stderr.write('no focused UI element (err=%s)' % err)\n"
     "        sys.exit(1)\n"
     "    err = AXUIElementSetAttributeValue(focused, kAXSelectedTextAttribute, text)\n"
-    "    sys.exit(0 if err == 0 else 1)\n"
-    "except Exception:\n"
+    "    if err != 0:\n"
+    "        sys.stderr.write('AXSelectedText not settable (err=%s)' % err)\n"
+    "        sys.exit(1)\n"
+    "    sys.exit(0)\n"
+    "except Exception as e:\n"
+    "    sys.stderr.write(repr(e))\n"
     "    sys.exit(1)\n"
 )
 
