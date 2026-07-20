@@ -27,6 +27,8 @@ DEFAULTS = {
     "vocabulary": [],
     # Whisper-модель, выбранная в меню Model. None = дефолт приложения.
     "model": None,
+    # Способ вставки текста: "paste" (буфер+Cmd+V) или "ax" (Accessibility API).
+    "insert_mode": "paste",
 }
 
 SMART_MODES = ("raw", "clean", "prompt")
@@ -40,6 +42,7 @@ def _defaults_copy() -> "dict[str, Any]":
         "smart_mode": DEFAULTS["smart_mode"],
         "vocabulary": list(DEFAULTS["vocabulary"]),
         "model": DEFAULTS["model"],
+        "insert_mode": DEFAULTS["insert_mode"],
     }
 
 
@@ -90,6 +93,12 @@ def _validate(raw: Any) -> "dict[str, Any]":
     model = raw.get("model")
     if isinstance(model, str) and model.strip():
         cfg["model"] = model.strip()
+
+    mode = raw.get("insert_mode")
+    if mode in ("paste", "ax"):
+        cfg["insert_mode"] = mode
+    else:
+        cfg["insert_mode"] = DEFAULTS["insert_mode"]
 
     return cfg
 

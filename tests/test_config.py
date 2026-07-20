@@ -101,5 +101,30 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(config.DEFAULTS["vocabulary"], [])
 
 
+class TestInsertMode(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._old = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = self._tmp.name
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("XDG_CONFIG_HOME", None)
+        else:
+            os.environ["XDG_CONFIG_HOME"] = self._old
+        self._tmp.cleanup()
+
+    def test_default_is_paste(self):
+        self.assertEqual(config.load()["insert_mode"], "paste")
+
+    def test_valid_ax_roundtrips(self):
+        config.save({"insert_mode": "ax"})
+        self.assertEqual(config.load()["insert_mode"], "ax")
+
+    def test_invalid_falls_back_to_paste(self):
+        config.save({"insert_mode": "nonsense"})
+        self.assertEqual(config.load()["insert_mode"], "paste")
+
+
 if __name__ == "__main__":
     unittest.main()
