@@ -630,6 +630,52 @@ def paste_via_cmd_v() -> None:
     )
 
 
+_AX_INSERT_CODE = (
+    "import sys\n"
+    "from ApplicationServices import (\n"
+    "    AXUIElementCreateSystemWide,\n"
+    "    AXUIElementCopyAttributeValue,\n"
+    "    AXUIElementSetAttributeValue,\n"
+    "    kAXFocusedUIElementAttribute,\n"
+    "    kAXSelectedTextAttribute,\n"
+    ")\n"
+    "text = sys.stdin.buffer.read().decode('utf-8')\n"
+    "try:\n"
+    "    sw = AXUIElementCreateSystemWide()\n"
+    "    err, focused = AXUIElementCopyAttributeValue(sw, kAXFocusedUIElementAttribute, None)\n"
+    "    if err != 0 or focused is None:\n"
+    "        sys.exit(1)\n"
+    "    err = AXUIElementSetAttributeValue(focused, kAXSelectedTextAttribute, text)\n"
+    "    sys.exit(0 if err == 0 else 1)\n"
+    "except Exception:\n"
+    "    sys.exit(1)\n"
+)
+
+
+def insert_via_ax(text: str) -> bool:
+    """Insert `text` at the caret of the focused UI element via the macOS
+    Accessibility API — WITHOUT touching the clipboard. Returns True on success.
+
+    Runs in the same signed-python subprocess pattern as paste_via_cmd_v (doing
+    AX work in-process next to the pynput listener and MLX/Metal is unsafe; the
+    subprocess shares our TCC identity and needs only Accessibility). Any
+    failure — no focused element, non-settable field, exception, or timeout —
+    returns False so the caller can fall back to clipboard paste.
+    """
+    if not text:
+        return False
+    try:
+        r = subprocess.run(
+            [sys.executable, "-c", _AX_INSERT_CODE],
+            input=text.encode("utf-8"),
+            timeout=2.0,
+        )
+        return r.returncode == 0
+    except Exception as e:
+        print(f"[!] AX insert failed: {e}", file=sys.stderr)
+        return False
+
+
 def deliver_text(text: str, do_paste: bool, restore_clipboard: bool) -> None:
     """
     1) Кладём текст в буфер обмена и гарантируем, что он там остаётся.
