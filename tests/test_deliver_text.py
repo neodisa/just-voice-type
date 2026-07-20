@@ -45,7 +45,13 @@ class TestDeliverTextRouting(unittest.TestCase):
         voice_type.insert_via_ax = lambda t: (self.calls.append(("ax", t)) or True)
         voice_type.deliver_text("hi", do_paste=True, restore_clipboard=False,
                                 insert_mode="paste")
-        self.assertEqual([c[0] for c in self.calls], ["copy", "paste"])
+        self.assertEqual(self.calls, [("copy", "hi"), ("paste",)])
+
+    def test_no_paste_with_ax_mode_skips_ax_and_paste(self):
+        voice_type.insert_via_ax = lambda t: (self.calls.append(("ax", t)) or True)
+        voice_type.deliver_text("hi", do_paste=False, restore_clipboard=False,
+                                insert_mode="ax")
+        self.assertEqual(self.calls, [("copy", "hi")])
 
 
 if __name__ == "__main__":
