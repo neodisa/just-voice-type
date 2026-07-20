@@ -646,57 +646,83 @@ _AX_INSERT_CODE = (
     "import sys\n"
     "from ApplicationServices import (\n"
     "    AXUIElementCreateSystemWide,\n"
+    "    AXUIElementCreateApplication,\n"
     "    AXUIElementCopyAttributeValue,\n"
     "    AXUIElementSetAttributeValue,\n"
     "    kAXFocusedUIElementAttribute,\n"
     "    kAXSelectedTextAttribute,\n"
     ")\n"
     "text = sys.stdin.buffer.read().decode('utf-8')\n"
+    "target_pid = int(sys.argv[1]) if len(sys.argv) > 1 else 0\n"
+    "def set_on(el):\n"
+    "    return AXUIElementSetAttributeValue(el, kAXSelectedTextAttribute, text) == 0\n"
     "try:\n"
+    "    cur_pid = -1\n"
+    "    try:\n"
+    "        from AppKit import NSWorkspace\n"
+    "        app = NSWorkspace.sharedWorkspace().frontmostApplication()\n"
+    "        cur_pid = int(app.processIdentifier()) if app is not None else -1\n"
+    "    except Exception:\n"
+    "        cur_pid = -1\n"
+    "    if target_pid > 0 and target_pid != cur_pid:\n"
+    "        app_el = AXUIElementCreateApplication(target_pid)\n"
+    "        err, focused = AXUIElementCopyAttributeValue(app_el, kAXFocusedUIElementAttribute, None)\n"
+    "        if err == 0 and focused is not None and set_on(focused):\n"
+    "            sys.exit(0)\n"
+    "        sys.stderr.write('focus changed; background insert failed')\n"
+    "        sys.exit(3)\n"
     "    sw = AXUIElementCreateSystemWide()\n"
     "    err, focused = AXUIElementCopyAttributeValue(sw, kAXFocusedUIElementAttribute, None)\n"
-    "    if err != 0 or focused is None:\n"
-    "        sys.stderr.write('no focused UI element (err=%s)' % err)\n"
-    "        sys.exit(1)\n"
-    "    err = AXUIElementSetAttributeValue(focused, kAXSelectedTextAttribute, text)\n"
-    "    if err != 0:\n"
-    "        sys.stderr.write('AXSelectedText not settable (err=%s)' % err)\n"
-    "        sys.exit(1)\n"
-    "    sys.exit(0)\n"
+    "    if err == 0 and focused is not None and set_on(focused):\n"
+    "        sys.exit(0)\n"
+    "    sys.stderr.write('insert failed on frontmost (err=%s)' % err)\n"
+    "    sys.exit(1)\n"
     "except Exception as e:\n"
     "    sys.stderr.write(repr(e))\n"
     "    sys.exit(1)\n"
 )
 
 
-def insert_via_ax(text: str) -> bool:
-    """Insert `text` at the caret of the focused UI element via the macOS
-    Accessibility API — WITHOUT touching the clipboard. Returns True on success.
+def insert_via_ax(text: str, target_pid: "Optional[int]" = None) -> str:
+    """Insert `text` into the focused field via the macOS Accessibility API,
+    WITHOUT touching the clipboard. Returns a status:
 
-    Runs in the same signed-python subprocess pattern as paste_via_cmd_v (doing
-    AX work in-process next to the pynput listener and MLX/Metal is unsafe; the
-    subprocess shares our TCC identity and needs only Accessibility). Any
-    failure — no focused element, non-settable field, exception, or timeout —
-    returns False so the caller can fall back to clipboard paste.
+      "ok"             — inserted (into the frontmost focus, or silently into the
+                         original app's field when focus had moved away).
+      "history_only"   — the user switched to another app and the background
+                         insert into the original app failed; caller must NOT
+                         steal focus or paste elsewhere (text stays in history).
+      "paste_fallback" — insertion failed while the target app is still frontmost
+                         (or unknown); caller should fall back to clipboard+Cmd+V.
+
+    `target_pid` is the app that was frontmost when dictation started (from
+    frontmost_app_pid()). Runs in the signed-python subprocess pattern; the pid is
+    passed as argv, text on stdin. Any failure/timeout -> "paste_fallback".
     """
     if not text:
-        return False
+        return "paste_fallback"
     try:
         r = subprocess.run(
-            [sys.executable, "-c", _AX_INSERT_CODE],
+            [sys.executable, "-c", _AX_INSERT_CODE, str(target_pid or 0)],
             input=text.encode("utf-8"),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             timeout=2.0,
         )
-        if r.returncode != 0:
-            err = (r.stderr or b"").decode("utf-8", "ignore").strip()
-            tail = err.splitlines()[-1] if err else ""
-            print(f"[i] AX insert failed (falling back to paste): {tail}", file=sys.stderr)
-        return r.returncode == 0
+        if r.returncode == 0:
+            return "ok"
+        reason = (r.stderr or b"").decode("utf-8", "ignore").strip()
+        tail = reason.splitlines()[-1] if reason else ""
+        if r.returncode == 3:
+            print(f"[i] AX: target window changed, kept in history: {tail}",
+                  file=sys.stderr)
+            return "history_only"
+        print(f"[i] AX insert failed (falling back to paste): {tail}",
+              file=sys.stderr)
+        return "paste_fallback"
     except Exception as e:
         print(f"[!] AX insert failed: {e}", file=sys.stderr)
-        return False
+        return "paste_fallback"
 
 
 def deliver_text(
@@ -704,6 +730,7 @@ def deliver_text(
     do_paste: bool,
     restore_clipboard: bool,
     insert_mode: str = "paste",
+    target_pid: "Optional[int]" = None,
 ) -> None:
     """
     1) Кладём текст в буфер обмена и гарантируем, что он там остаётся.
@@ -715,11 +742,20 @@ def deliver_text(
     if not text:
         return
     # AX mode: try direct Accessibility insertion first (no clipboard touched).
-    # On any failure, fall through to the clipboard+Cmd+V path below.
     if do_paste and insert_mode == "ax":
-        if insert_via_ax(text):
+        status = insert_via_ax(text, target_pid)
+        if status == "ok":
             return
-    previous = read_clipboard() if restore_clipboard else None
+        if status == "history_only":
+            # User moved to another app and background insert failed. Per design,
+            # don't steal focus or paste into the wrong window — it's in history.
+            notify("Voice Type", "Saved to history — target window changed")
+            return
+        # status == "paste_fallback": fall through to clipboard+Cmd+V below.
+    # In AX mode the paste fallback must not clobber the clipboard, so restore
+    # regardless of the restore_clipboard flag. Plain paste mode is unchanged.
+    restore = restore_clipboard or (insert_mode == "ax")
+    previous = read_clipboard() if restore else None
     copy_to_clipboard(text)
     # подтверждаем что положилось
     placed = read_clipboard()
@@ -730,7 +766,7 @@ def deliver_text(
     if do_paste:
         time.sleep(0.05)
         paste_via_cmd_v()
-    if restore_clipboard and previous is not None:
+    if restore and previous is not None:
         def _restore():
             time.sleep(0.4)
             copy_to_clipboard(previous)
