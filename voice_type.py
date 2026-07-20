@@ -682,7 +682,12 @@ def insert_via_ax(text: str) -> bool:
         return False
 
 
-def deliver_text(text: str, do_paste: bool, restore_clipboard: bool) -> None:
+def deliver_text(
+    text: str,
+    do_paste: bool,
+    restore_clipboard: bool,
+    insert_mode: str = "paste",
+) -> None:
     """
     1) Кладём текст в буфер обмена и гарантируем, что он там остаётся.
        Можно в любой момент вставить Cmd+V вручную в любое поле.
@@ -692,6 +697,11 @@ def deliver_text(text: str, do_paste: bool, restore_clipboard: bool) -> None:
     """
     if not text:
         return
+    # AX mode: try direct Accessibility insertion first (no clipboard touched).
+    # On any failure, fall through to the clipboard+Cmd+V path below.
+    if do_paste and insert_mode == "ax":
+        if insert_via_ax(text):
+            return
     previous = read_clipboard() if restore_clipboard else None
     copy_to_clipboard(text)
     # подтверждаем что положилось
