@@ -54,14 +54,18 @@ class TestLoadWav16k(unittest.TestCase):
 
 
 class TestParakeetInterface(unittest.TestCase):
-    def test_class_exists_with_matching_interface(self):
+    def test_interface_matches_mlx_transcriber(self):
         import inspect
 
-        cls = voice_type.ParakeetTranscriber
-        params = list(inspect.signature(cls.transcribe).parameters)
-        self.assertIn("language", params)
-        self.assertIn("initial_prompt", params)
-        self.assertTrue(hasattr(cls, "warm_up"))
+        self.assertEqual(
+            inspect.signature(voice_type.ParakeetTranscriber.__init__),
+            inspect.signature(voice_type.MLXTranscriber.__init__),
+        )
+        self.assertEqual(
+            inspect.signature(voice_type.ParakeetTranscriber.transcribe),
+            inspect.signature(voice_type.MLXTranscriber.transcribe),
+        )
+        self.assertTrue(hasattr(voice_type.ParakeetTranscriber, "warm_up"))
 
 
 if __name__ == "__main__":

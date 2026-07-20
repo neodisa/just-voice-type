@@ -544,10 +544,12 @@ class ParakeetTranscriber:
     ) -> str:
         """audio: float32 mono 16 kHz numpy array or path to WAV.
 
-        `language` and `initial_prompt` are accepted for interface parity but
-        IGNORED: Parakeet auto-detects the language and supports neither a
-        language force nor prompt biasing. We feed a precomputed log-mel to
-        `generate()` so we never hit parakeet-mlx's ffmpeg-based file path.
+        `language` and `initial_prompt` are accepted for interface parity.
+        Parakeet auto-detects the language and supports no prompt biasing, so
+        neither affects transcription; `language` is still recorded in
+        `last_language` as a best-effort hint for the polisher. We feed a
+        precomputed log-mel to `generate()` so we never hit parakeet-mlx's
+        ffmpeg-based file path.
         """
         import mlx.core as mx  # type: ignore
         from parakeet_mlx.audio import get_logmel  # type: ignore
@@ -567,7 +569,7 @@ class ParakeetTranscriber:
         import numpy as np
 
         try:
-            self.transcribe(np.zeros(SAMPLE_RATE // 2, dtype=np.float32))
+            self.transcribe(np.zeros(SAMPLE_RATE // 2, dtype=np.float32), language="en")
         except Exception as e:
             print(f"[!] parakeet warm-up failed: {e}", file=sys.stderr)
 
