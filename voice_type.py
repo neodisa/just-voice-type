@@ -668,8 +668,14 @@ def insert_via_ax(text: str) -> bool:
         r = subprocess.run(
             [sys.executable, "-c", _AX_INSERT_CODE],
             input=text.encode("utf-8"),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             timeout=2.0,
         )
+        if r.returncode != 0:
+            err = (r.stderr or b"").decode("utf-8", "ignore").strip()
+            tail = err.splitlines()[-1] if err else ""
+            print(f"[i] AX insert failed (falling back to paste): {tail}", file=sys.stderr)
         return r.returncode == 0
     except Exception as e:
         print(f"[!] AX insert failed: {e}", file=sys.stderr)
