@@ -3,4 +3,5 @@ numpy>=1.26
 pynput>=1.7.6
 mlx-whisper>=0.4.0
 mlx-lm>=0.31.0
+parakeet-mlx>=0.3.0
 rumps>=0.4.0

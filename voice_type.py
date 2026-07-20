@@ -880,6 +880,7 @@ def run_app(args):
     # модели для подменю «Model» (только для движка mlx).
     MLX_MODELS = [
         ("🎯 Large v3 — most accurate (default)", "mlx-community/whisper-large-v3-mlx"),
+        ("⚡ Parakeet v3 — fastest (RU/UK/EN)", "mlx-community/parakeet-tdt-0.6b-v3"),
         ("⚡ Turbo — faster decode, weaker RU/UK", "mlx-community/whisper-large-v3-turbo"),
         ("Medium — balanced", "mlx-community/whisper-medium-mlx"),
         ("Small — fastest", "mlx-community/whisper-small-mlx"),
