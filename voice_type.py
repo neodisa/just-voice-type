@@ -871,8 +871,10 @@ def apply_replacements(text: str, rules: "dict") -> str:
     if not text or not rules:
         return text
     # Longest keys first so multi-word phrases win over their prefixes.
-    keys = sorted(rules.keys(), key=len, reverse=True)
-    lookup = {k.lower(): v for k, v in rules.items()}
+    keys = [k for k in sorted(rules.keys(), key=len, reverse=True) if k]
+    if not keys:
+        return text
+    lookup = {k.lower(): v for k, v in rules.items() if k}
     pattern = re.compile(
         r"\b(" + "|".join(re.escape(k) for k in keys) + r")\b",
         re.IGNORECASE,

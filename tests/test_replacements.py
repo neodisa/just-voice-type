@@ -52,6 +52,9 @@ class TestApplyReplacements(unittest.TestCase):
             "это задеплоить надо",
         )
 
+    def test_empty_key_is_ignored(self):
+        self.assertEqual(voice_type.apply_replacements("hi there", {"": "X"}), "hi there")
+
 
 if __name__ == "__main__":
     unittest.main()
