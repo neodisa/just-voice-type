@@ -126,5 +126,34 @@ class TestInsertMode(unittest.TestCase):
         self.assertEqual(config.load()["insert_mode"], "paste")
 
 
+class TestReplacements(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._old = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = self._tmp.name
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("XDG_CONFIG_HOME", None)
+        else:
+            os.environ["XDG_CONFIG_HOME"] = self._old
+        self._tmp.cleanup()
+
+    def test_default_is_empty_dict(self):
+        self.assertEqual(config.load()["replacements"], {})
+
+    def test_valid_map_roundtrips(self):
+        config.save({"replacements": {"апруф": "апрув"}})
+        self.assertEqual(config.load()["replacements"], {"апруф": "апрув"})
+
+    def test_non_dict_becomes_empty(self):
+        config.save({"replacements": ["not", "a", "dict"]})
+        self.assertEqual(config.load()["replacements"], {})
+
+    def test_non_string_entries_dropped(self):
+        config.save({"replacements": {"ok": "fine", "bad": 5, 7: "x", "": "y", "z": ""}})
+        self.assertEqual(config.load()["replacements"], {"ok": "fine"})
+
+
 if __name__ == "__main__":
     unittest.main()

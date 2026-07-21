@@ -29,6 +29,9 @@ DEFAULTS = {
     "model": None,
     # Способ вставки текста: "paste" (буфер+Cmd+V) или "ax" (Accessibility API).
     "insert_mode": "paste",
+    # Словарь замен «как распозналось» -> «как надо», применяется к финальному
+    # тексту (см. apply_replacements). Пусто = ничего не заменяем.
+    "replacements": {},
 }
 
 SMART_MODES = ("raw", "clean", "prompt")
@@ -44,6 +47,7 @@ def _defaults_copy() -> "dict[str, Any]":
         "vocabulary": list(DEFAULTS["vocabulary"]),
         "model": DEFAULTS["model"],
         "insert_mode": DEFAULTS["insert_mode"],
+        "replacements": dict(DEFAULTS["replacements"]),
     }
 
 
@@ -100,6 +104,15 @@ def _validate(raw: Any) -> "dict[str, Any]":
         cfg["insert_mode"] = imode
     else:
         cfg["insert_mode"] = DEFAULTS["insert_mode"]
+
+    reps = raw.get("replacements")
+    if isinstance(reps, dict):
+        cfg["replacements"] = {
+            k: v for k, v in reps.items()
+            if isinstance(k, str) and k.strip() and isinstance(v, str) and v.strip()
+        }
+    else:
+        cfg["replacements"] = {}
 
     return cfg
 
