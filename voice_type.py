@@ -39,7 +39,7 @@ import streaming
 
 # единственный источник правды о версии; бампается при каждом релизе
 # (тег vX.Y.Z в git должен совпадать)
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 RELEASES_URL = "https://github.com/neodisa/just-voice-type/releases"
 
 SAMPLE_RATE = 16_000
