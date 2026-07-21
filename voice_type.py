@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -860,6 +861,23 @@ def ensure_accessibility(prompt: bool = True) -> bool:
     except Exception as e:  # pragma: no cover
         print(f"[!] Accessibility check failed: {e}", file=sys.stderr)
         return True  # не блокируем запуск
+
+
+def apply_replacements(text: str, rules: "dict") -> str:
+    """Replace user-defined terms in `text`: whole-word, case-insensitive,
+    single pass. `rules` maps heard-form -> wanted-form. Output is the literal
+    wanted value; a rule's output is never re-scanned by another rule.
+    """
+    if not text or not rules:
+        return text
+    # Longest keys first so multi-word phrases win over their prefixes.
+    keys = sorted(rules.keys(), key=len, reverse=True)
+    lookup = {k.lower(): v for k, v in rules.items()}
+    pattern = re.compile(
+        r"\b(" + "|".join(re.escape(k) for k in keys) + r")\b",
+        re.IGNORECASE,
+    )
+    return pattern.sub(lambda m: lookup[m.group(0).lower()], text)
 
 
 def polish_text_safe(polisher, text, mode, language, vocabulary):
