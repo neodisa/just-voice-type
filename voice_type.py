@@ -1129,6 +1129,9 @@ def run_app(args):
             items.append(
                 rumps.MenuItem("Edit vocabulary…", callback=self.edit_vocabulary)
             )
+            items.append(
+                rumps.MenuItem("Edit replacements…", callback=self.edit_replacements)
+            )
             items.append(None)  # separator: delivery toggle is not a polish preset
             ax_item = rumps.MenuItem(
                 "Insert via Accessibility (no clipboard)",
@@ -1272,6 +1275,15 @@ def run_app(args):
             notify(
                 "Voice Type",
                 "Edit the \"vocabulary\" list in config.json — applies on your next dictation",
+            )
+
+        def edit_replacements(self, _):
+            # словарь замен правится прямо в конфиг-файле; открываем его
+            persist()  # на случай первого запуска — гарантируем, что файл есть
+            subprocess.Popen(["open", config.config_path()])
+            notify(
+                "Voice Type",
+                'Edit the "replacements" map in config.json — applies on your next dictation',
             )
 
         def _make_hotkey_setter(self, name):
@@ -1444,6 +1456,10 @@ def run_app(args):
                         vocabulary["value"],
                     )
                     print(f"[i] polished ({smart_mode['value']}, {time.time() - t1:.1f}s)")
+
+                # Детерминированные пользовательские замены (heard -> wanted),
+                # перечитываем с диска ради мгновенного эффекта без рестарта.
+                full = apply_replacements(full, config.load()["replacements"])
 
                 if full:
                     log(f"[✓] copied: {full}")
