@@ -154,6 +154,10 @@ class TestReplacements(unittest.TestCase):
         config.save({"replacements": {"ok": "fine", "bad": 5, 7: "x", "": "y", "z": ""}})
         self.assertEqual(config.load()["replacements"], {"ok": "fine"})
 
+    def test_whitespace_padded_entries_are_stripped(self):
+        config.save({"replacements": {"  approve ": "  апрув "}})
+        self.assertEqual(config.load()["replacements"], {"approve": "апрув"})
+
 
 if __name__ == "__main__":
     unittest.main()

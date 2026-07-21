@@ -108,7 +108,8 @@ def _validate(raw: Any) -> "dict[str, Any]":
     reps = raw.get("replacements")
     if isinstance(reps, dict):
         cfg["replacements"] = {
-            k: v for k, v in reps.items()
+            k.strip(): v.strip()
+            for k, v in reps.items()
             if isinstance(k, str) and k.strip() and isinstance(v, str) and v.strip()
         }
     else:
