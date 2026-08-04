@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -50,6 +51,28 @@ class TestCallsMeta(unittest.TestCase):
         text = calls.label(1, items[0])
         self.assertIn("2 мин", text)
         self.assertIn("обсудили план на неделю", text)
+
+    def test_corrupt_file_returns_empty(self):
+        os.makedirs(calls.calls_meta_path().rsplit("/", 1)[0], exist_ok=True)
+        with open(calls.calls_meta_path(), "w", encoding="utf-8") as f:
+            f.write("{not json")
+        self.assertEqual(calls.load(), [])
+
+    def test_junk_entries_dropped(self):
+        os.makedirs(calls.calls_meta_path().rsplit("/", 1)[0], exist_ok=True)
+        with open(calls.calls_meta_path(), "w", encoding="utf-8") as f:
+            json.dump(
+                [
+                    {"ts": 5.0, "duration_sec": 60.0, "path": "/tmp/ok.txt", "preview": "ok"},
+                    {"no": "path"},
+                    42,
+                    {"ts": 6.0, "duration_sec": 60.0, "path": "/tmp/bad.txt", "preview": None},
+                    {"ts": 7.0, "duration_sec": 60.0, "preview": "missing_path"},
+                ],
+                f,
+            )
+        items = calls.load()
+        self.assertEqual([i["path"] for i in items], ["/tmp/ok.txt"])
 
 
 class TestTranscriptFiles(unittest.TestCase):
