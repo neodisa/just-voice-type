@@ -159,5 +159,61 @@ class TestReplacements(unittest.TestCase):
         self.assertEqual(config.load()["replacements"], {"approve": "апрув"})
 
 
+class TestCallSettings(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._old = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = self._tmp.name
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("XDG_CONFIG_HOME", None)
+        else:
+            os.environ["XDG_CONFIG_HOME"] = self._old
+        self._tmp.cleanup()
+
+    def test_default_call_hotkey_is_f13(self):
+        self.assertEqual(config.load()["call_hotkey"], "f13")
+
+    def test_default_call_device_is_none(self):
+        self.assertIsNone(config.load()["call_device"])
+
+    def test_call_hotkey_roundtrip(self):
+        config.save({"call_hotkey": "f14"})
+        self.assertEqual(config.load()["call_hotkey"], "f14")
+
+    def test_invalid_call_hotkey_falls_back_to_default(self):
+        config.save({"call_hotkey": ""})
+        self.assertEqual(config.load()["call_hotkey"], "f13")
+
+    def test_call_device_roundtrip(self):
+        config.save({"call_device": "Aggregate Device"})
+        self.assertEqual(config.load()["call_device"], "Aggregate Device")
+
+    def test_call_device_junk_becomes_none(self):
+        config.save({"call_device": 42})
+        self.assertIsNone(config.load()["call_device"])
+        config.save({"call_device": "   "})
+        self.assertIsNone(config.load()["call_device"])
+
+    def test_no_collision_when_hotkeys_differ(self):
+        config.save({"hotkey": "right_option", "call_hotkey": "f13"})
+        cfg = config.load()
+        self.assertEqual(cfg["hotkey"], "right_option")
+        self.assertEqual(cfg["call_hotkey"], "f13")
+
+    def test_call_hotkey_colliding_with_hotkey_falls_back(self):
+        config.save({"hotkey": "f13", "call_hotkey": "f13"})
+        cfg = config.load()
+        self.assertNotEqual(cfg["call_hotkey"], cfg["hotkey"])
+        self.assertEqual(cfg["call_hotkey"], "f14")
+
+    def test_call_hotkey_collision_when_default_is_dictation_hotkey(self):
+        # dictation hotkey happens to be f13 — the call default — so
+        # call_hotkey (left unset, defaults to f13) must fall back further
+        config.save({"hotkey": "f13"})
+        self.assertEqual(config.load()["call_hotkey"], "f14")
+
+
 if __name__ == "__main__":
     unittest.main()

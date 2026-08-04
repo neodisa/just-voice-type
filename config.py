@@ -32,6 +32,13 @@ DEFAULTS = {
     # Словарь замен «как распозналось» -> «как надо», применяется к финальному
     # тексту (см. apply_replacements). Пусто = ничего не заменяем.
     "replacements": {},
+    # Хоткей для режима звонков (Call Mode) — toggle, независимый от
+    # основного хоткея диктовки.
+    "call_hotkey": "f13",
+    # Устройство записи для звонков (имя из sounddevice.query_devices(),
+    # обычно Aggregate Device: микрофон + виртуальный loopback). None = не
+    # настроено — Call Mode откажется стартовать.
+    "call_device": None,
 }
 
 SMART_MODES = ("raw", "clean", "prompt")
@@ -48,6 +55,8 @@ def _defaults_copy() -> "dict[str, Any]":
         "model": DEFAULTS["model"],
         "insert_mode": DEFAULTS["insert_mode"],
         "replacements": dict(DEFAULTS["replacements"]),
+        "call_hotkey": DEFAULTS["call_hotkey"],
+        "call_device": DEFAULTS["call_device"],
     }
 
 
@@ -114,6 +123,20 @@ def _validate(raw: Any) -> "dict[str, Any]":
         }
     else:
         cfg["replacements"] = {}
+
+    call_hk = raw.get("call_hotkey")
+    if isinstance(call_hk, str) and call_hk.strip():
+        cfg["call_hotkey"] = call_hk.strip()
+
+    call_dev = raw.get("call_device")
+    if isinstance(call_dev, str) and call_dev.strip():
+        cfg["call_device"] = call_dev.strip()
+
+    # звонок и диктовка не могут висеть на одной и той же клавише
+    if cfg["call_hotkey"] == cfg["hotkey"]:
+        cfg["call_hotkey"] = (
+            "f14" if DEFAULTS["call_hotkey"] == cfg["hotkey"] else DEFAULTS["call_hotkey"]
+        )
 
     return cfg
 
