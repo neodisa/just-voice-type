@@ -59,5 +59,17 @@ class TestHallucinationFilter(unittest.TestCase):
         self.assertFalse(voice_type.is_hallucination("Привет, как дела?"))
 
 
+class TestRecorderDeviceParams(unittest.TestCase):
+    def test_defaults_preserve_existing_behavior(self):
+        r = voice_type.Recorder()
+        self.assertIsNone(r.device)
+        self.assertFalse(r.all_channels)
+
+    def test_device_and_all_channels_are_settable(self):
+        r = voice_type.Recorder(device="Aggregate Device", all_channels=True)
+        self.assertEqual(r.device, "Aggregate Device")
+        self.assertTrue(r.all_channels)
+
+
 if __name__ == "__main__":
     unittest.main()

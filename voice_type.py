@@ -147,6 +147,14 @@ def notify(title: str, message: str) -> None:
 @dataclass
 class Recorder:
     sample_rate: int = SAMPLE_RATE
+    # None = устройство по умолчанию (системный микрофон); иначе имя/индекс
+    # устройства из sounddevice.query_devices() — используется Call Mode для
+    # записи с Aggregate Device (свой микрофон + системный звук).
+    device: "Optional[str | int]" = None
+    # False = как раньше, режем канал до 1 (моно-микрофон). True = берём ВСЕ
+    # каналы устройства — для Aggregate Device это даунмиксит микрофон и
+    # системный звук в единую моно-дорожку в _to_mono_native.
+    all_channels: bool = False
 
     def __post_init__(self):
         self.sd = _require("sounddevice")
@@ -177,14 +185,17 @@ class Recorder:
                 self._frames.append(indata.copy())
 
     def _detect_native_params(self):
-        """Берём дефолтное входное устройство и его нативные параметры."""
+        """Берём указанное (или дефолтное) входное устройство и его нативные
+        параметры."""
         try:
-            default_in_idx = self.sd.default.device[0]
-            info = self.sd.query_devices(default_in_idx)
+            device = self.device if self.device is not None else self.sd.default.device[0]
+            info = self.sd.query_devices(device)
             native_sr = int(info.get("default_samplerate", 48000))
-            # ограничим до моно если устройство умеет, иначе берём что есть
             max_in = int(info.get("max_input_channels", 1))
-            channels = 1 if max_in >= 1 else max_in
+            # all_channels=True (Call Mode): берём ВСЕ каналы устройства —
+            # _to_mono_native их усреднит в одну дорожку. Иначе, как раньше,
+            # режем до моно.
+            channels = max_in if self.all_channels else (1 if max_in >= 1 else max_in)
             print(f"[i] device: {info['name']}, sr={native_sr}, ch={channels}")
             return native_sr, channels
         except Exception as e:
@@ -223,11 +234,12 @@ class Recorder:
         if self._native_sr is None:
             self._native_sr, self._native_channels = self._detect_native_params()
         # стратегия открытия: сначала native sr, потом 16000, потом без указания
+        fallback_ch = self._native_channels if self.all_channels else 1
         tried = []
         for sr, ch in [
             (self._native_sr, self._native_channels),
-            (16000, 1),
-            (44100, 1),
+            (16000, fallback_ch),
+            (44100, fallback_ch),
             (None, None),  # пусть PortAudio сам решит
         ]:
             try:
@@ -236,6 +248,8 @@ class Recorder:
                     kwargs["samplerate"] = sr
                 if ch is not None:
                     kwargs["channels"] = ch
+                if self.device is not None:
+                    kwargs["device"] = self.device
                 self._stream = self.sd.InputStream(**kwargs)
                 self._stream.start()
                 actual_sr = int(self._stream.samplerate)
