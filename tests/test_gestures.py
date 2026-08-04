@@ -72,5 +72,36 @@ class TestDoubleTapHandsFree(unittest.TestCase):
         self.assertEqual(self.g.mode, "ptt")
 
 
+class TestCallToggle(unittest.TestCase):
+    def setUp(self):
+        self.t = gestures.CallToggle()
+
+    def test_first_press_activates_and_returns_call_start(self):
+        self.assertEqual(self.t.on_press(0.0), "call_start")
+        self.assertTrue(self.t.active)
+
+    def test_repeat_press_while_held_is_ignored(self):
+        self.t.on_press(0.0)
+        self.assertIsNone(self.t.on_press(0.05))  # автоповтор ОС, клавиша ещё держится
+        self.assertTrue(self.t.active)
+
+    def test_release_then_press_toggles_off(self):
+        self.t.on_press(0.0)
+        self.t.on_release(0.5)
+        self.assertEqual(self.t.on_press(1.0), "call_stop")
+        self.assertFalse(self.t.active)
+
+    def test_release_alone_has_no_return_value(self):
+        self.assertIsNone(self.t.on_release(0.0))
+
+    def test_second_full_cycle_starts_again(self):
+        self.t.on_press(0.0)
+        self.t.on_release(0.1)
+        self.t.on_press(1.0)   # → call_stop
+        self.t.on_release(1.1)
+        self.assertEqual(self.t.on_press(2.0), "call_start")
+        self.assertTrue(self.t.active)
+
+
 if __name__ == "__main__":
     unittest.main()

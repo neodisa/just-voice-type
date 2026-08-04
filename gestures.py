@@ -26,6 +26,8 @@ Actions returned to the caller:
 """
 from __future__ import annotations
 
+from typing import Optional
+
 START = "START"
 FINALIZE = "FINALIZE"
 ARM_TIMER = "ARM_TIMER"
@@ -87,3 +89,25 @@ class GestureRecognizer:
     @property
     def is_handsfree(self) -> bool:
         return self.mode == "handsfree"
+
+
+class CallToggle:
+    """Простой toggle для отдельного хоткея Call Mode: нажал — начинается
+    запись звонка, нажал ещё раз — заканчивается. В отличие от
+    GestureRecognizer, никакого различия hold/double-tap/tap — только защита
+    от автоповтора ОС, пока клавиша физически удерживается.
+    """
+
+    def __init__(self):
+        self.active = False
+        self._key_down = False
+
+    def on_press(self, now: float) -> Optional[str]:
+        if self._key_down:
+            return None  # автоповтор ОС, клавиша ещё держится — игнор
+        self._key_down = True
+        self.active = not self.active
+        return "call_start" if self.active else "call_stop"
+
+    def on_release(self, now: float) -> None:
+        self._key_down = False
