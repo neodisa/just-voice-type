@@ -30,6 +30,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+import calls
 import config
 import gestures
 import history
@@ -975,6 +976,7 @@ def run_app(args):
     # история диктовок: список в памяти + persist на диск; меню перестраивается
     # только из главного потока (AppKit) — воркер лишь поднимает флаг
     history_items = {"value": history.load()}
+    calls_items = {"value": calls.load()}
     menu_dirty = {"value": False}
     done_until = {"ts": 0.0}  # до какого момента показывать «✓ в буфере» в menubar
     # watchdog против «вечной записи»: vk хоткея, можно ли верить Quartz-опросу
@@ -997,6 +999,8 @@ def run_app(args):
     favorites = {"value": list(cfg["favorite_languages"])}
     current_lang = {"value": cfg["active_language"]}  # None = auto
     current_hotkey = {"value": cfg["hotkey"]}
+    current_call_hotkey = {"value": cfg["call_hotkey"]}
+    current_call_device = {"value": cfg["call_device"]}
     # модель: явный CLI-флаг → конфиг (выбор из меню) → дефолт движка.
     # По умолчанию на Apple Silicon — Parakeet: ~10× быстрее Whisper при
     # сопоставимой точности на ru/uk/en. CPU-фоллбэк остаётся на large-v3.
@@ -1031,6 +1035,8 @@ def run_app(args):
                 "vocabulary": on_disk["vocabulary"],
                 "model": current_model["value"],
                 "insert_mode": insert_mode["value"],
+                "call_hotkey": current_call_hotkey["value"],
+                "call_device": current_call_device["value"],
             }
         )
 
@@ -1516,7 +1522,20 @@ def run_app(args):
             persist()  # вычистить битое значение из конфига
             return parse_hotkey("right_option")
 
+    def _resolve_call_hotkey(name):
+        try:
+            return parse_hotkey(name)
+        except ValueError:
+            print(
+                f"[!] unknown call_hotkey {name!r}; falling back to f13",
+                file=sys.stderr,
+            )
+            current_call_hotkey["value"] = "f13"
+            persist()  # вычистить битое значение из конфига
+            return parse_hotkey("f13")
+
     hotkey_obj_holder = {"key": _resolve_hotkey(current_hotkey["value"])}
+    call_hotkey_obj_holder = {"key": _resolve_call_hotkey(current_call_hotkey["value"])}
     # распознаватель жестов (hold / double-tap / tap) и id текущей сессии.
     # gr дёргают три потока (клавиатура, pending-таймер, watchdog) — все
     # переходы под gesture_lock, чтобы состояние не разъехалось.
@@ -1526,6 +1545,29 @@ def run_app(args):
     pending_timer = {"t": None}
     # авто-стоп hands-free-записи, если о ней забыли (страховка)
     MAX_SESSION_SEC = 300.0
+
+    # ── Call Mode: отдельная запись, независимая от диктовки ────────────────
+    ct = gestures.CallToggle()
+    call_recorder_holder = {"obj": None}
+    # fail_count: последовательные ошибки take_chunk подряд — если устройство
+    # (например, VB-Cable) пропало посреди звонка, после нескольких подряд
+    # неудач останавливаем звонок сами, а не крутимся вечно молча.
+    call_session = {
+        "id": 0, "active": False, "start_ts": 0.0, "path": None, "fail_count": 0,
+    }
+    call_state = {"value": "idle"}  # idle | recording | transcribing
+    # авто-стоп забытого звонка (страховка) — намного длиннее диктовочного,
+    # звонки идут долго
+    MAX_CALL_SESSION_SEC = 4 * 3600.0
+
+    def _call_device_exists(name):
+        try:
+            for info in recorder.sd.query_devices():
+                if info.get("name") == name and int(info.get("max_input_channels", 0)) > 0:
+                    return True
+        except Exception:
+            pass
+        return False
 
     def control_loop():
         """Все операции с PortAudio — в одном фоновом потоке.
