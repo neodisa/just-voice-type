@@ -1636,13 +1636,15 @@ def run_app(args):
                     ct.active = False
                 else:
                     try:
+                        start_ts = time.time()
+                        path = calls.start_transcript(start_ts)
                         new_recorder = Recorder(device=device, all_channels=True)
                         new_recorder.start()
                         call_recorder_holder["obj"] = new_recorder
                         call_session["id"] += 1
                         call_session["active"] = True
-                        call_session["start_ts"] = time.time()
-                        call_session["path"] = calls.start_transcript(call_session["start_ts"])
+                        call_session["start_ts"] = start_ts
+                        call_session["path"] = path
                         call_session["fail_count"] = 0
                         call_state["value"] = "recording"
                         ct.active = True
@@ -1659,7 +1661,7 @@ def run_app(args):
                         ct.active = False
             elif cmd == "call_stop":
                 call_recorder = call_recorder_holder["obj"]
-                sid = call_session["id"]
+                sid = f"call-{call_session['id']}"
                 path = call_session["path"]
                 duration_sec = time.time() - call_session["start_ts"]
                 call_session["active"] = False
@@ -1732,7 +1734,7 @@ def run_app(args):
                     jobs.put(
                         {
                             "audio": chunk,
-                            "sid": call_session["id"],
+                            "sid": f"call-{call_session['id']}",
                             "mode": "call",
                             "final": False,
                             "path": call_session["path"],
