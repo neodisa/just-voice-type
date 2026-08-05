@@ -1103,6 +1103,16 @@ def run_app(args):
                     rumps.MenuItem("Copy last text", callback=self.copy_last),
                     self._history_menu(),
                     None,
+                    rumps.MenuItem(
+                        "■ Stop Call Recording"
+                        if call_session["active"]
+                        else "Start Call Recording",
+                        callback=self.toggle_call,
+                    ),
+                    self._call_hotkey_menu(),
+                    self._call_device_menu(),
+                    self._calls_menu(),
+                    None,
                     rumps.MenuItem("Quit", callback=self.quit_app),
                 ]
             )
@@ -1310,6 +1320,9 @@ def run_app(args):
             def setter(_):
                 if name == current_hotkey["value"]:
                     return
+                if name == current_call_hotkey["value"]:
+                    notify("Voice Type", f"{name} is already the Call Hotkey")
+                    return
                 try:
                     new_key = parse_hotkey(name)
                 except ValueError:
@@ -1330,6 +1343,132 @@ def run_app(args):
                 notify("Voice Type", f"Hotkey → {name}")
 
             return setter
+
+        def _call_hotkey_menu(self):
+            items = []
+            for preset in HOTKEY_PRESETS:
+                if preset is None:
+                    items.append(None)
+                    continue
+                label, name = preset
+                it = rumps.MenuItem(label, callback=self._make_call_hotkey_setter(name))
+                it.state = 1 if name == current_call_hotkey["value"] else 0
+                items.append(it)
+            return ("Call Hotkey", items)
+
+        def _make_call_hotkey_setter(self, name):
+            def setter(_):
+                if name == current_call_hotkey["value"]:
+                    return
+                if name == current_hotkey["value"]:
+                    notify("Voice Type", f"{name} is already the dictation Hotkey")
+                    return
+                try:
+                    new_key = parse_hotkey(name)
+                except ValueError:
+                    notify("Voice Type", f"Unsupported hotkey: {name}")
+                    return
+                # если звонок прямо сейчас пишется — аккуратно завершаем его
+                # с доставкой транскрипта, а не бросаем подвешенным на
+                # старой клавише
+                if call_session["active"]:
+                    ctrl.put("call_stop")
+                current_call_hotkey["value"] = name
+                call_hotkey_obj_holder["key"] = new_key
+                persist()
+                self._build_menu()
+                print(f"[i] Call hotkey set: {name}")
+                notify("Voice Type", f"Call Hotkey → {name}")
+
+            return setter
+
+        def _call_device_menu(self):
+            items = []
+            try:
+                devices = recorder.sd.query_devices()
+            except Exception as e:
+                log(f"[!] could not list devices: {e}")
+                devices = []
+            names_seen = set()
+            for info in devices:
+                if int(info.get("max_input_channels", 0)) <= 0:
+                    continue
+                name = info["name"]
+                if name in names_seen:
+                    continue
+                names_seen.add(name)
+                it = rumps.MenuItem(name, callback=self._make_call_device_setter(name))
+                it.state = 1 if name == current_call_device["value"] else 0
+                items.append(it)
+            configured = current_call_device["value"]
+            if configured and configured not in names_seen:
+                warn = rumps.MenuItem(f"⚠️ {configured} (not connected)")
+                warn.set_callback(None)
+                items.insert(0, warn)
+                items.insert(1, None)
+            if not items:
+                empty = rumps.MenuItem("No input devices found")
+                empty.set_callback(None)
+                items.append(empty)
+            return ("Call Device", items)
+
+        def _make_call_device_setter(self, name):
+            def setter(_):
+                current_call_device["value"] = name
+                persist()
+                self._build_menu()
+                print(f"[i] Call device set: {name}")
+                notify("Voice Type", f"Call Device → {name}")
+
+            return setter
+
+        def _calls_menu(self):
+            items = []
+            for i, item in enumerate(calls_items["value"][: calls.MENU_ITEMS], start=1):
+                items.append(
+                    rumps.MenuItem(
+                        calls.label(i, item),
+                        callback=self._make_call_copier(item["path"]),
+                    )
+                )
+            if not items:
+                empty = rumps.MenuItem("No calls recorded yet")
+                empty.set_callback(None)
+                items.append(empty)
+            items.append(None)
+            items.append(
+                rumps.MenuItem("Open Calls folder…", callback=self.open_calls_folder)
+            )
+            items.append(
+                rumps.MenuItem("Clear calls list…", callback=self.clear_calls)
+            )
+            return ("Calls", items)
+
+        def _make_call_copier(self, path):
+            def copier(_):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                except OSError as e:
+                    notify("Voice Type", f"Could not read transcript: {e}")
+                    return
+                copy_to_clipboard(text)
+                notify("Voice Type", "Copied call transcript — paste with Cmd+V")
+
+            return copier
+
+        def open_calls_folder(self, _):
+            os.makedirs(calls.calls_dir(), exist_ok=True)
+            subprocess.Popen(["open", calls.calls_dir()])
+
+        def clear_calls(self, _):
+            calls.clear()
+            calls_items["value"] = []
+            self._build_menu()
+            notify("Voice Type", "Calls list cleared (files kept on disk)")
+
+        def toggle_call(self, _):
+            ctrl.put("call_stop" if call_session["active"] else "call_start")
 
         # ── статус-иконка и действия ────────────────────────────────────────
         def _on_tick(self, _):
