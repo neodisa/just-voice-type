@@ -1426,9 +1426,13 @@ def run_app(args):
             audio = job.get("audio")
             sid = job.get("sid")
             final = job.get("final", True)
+            mode = job.get("mode", "dictation")
             try:
                 if final:
-                    state["value"] = "transcribing"
+                    if mode == "call":
+                        call_state["value"] = "transcribing"
+                    else:
+                        state["value"] = "transcribing"
                 tr = _wait_transcriber()
                 if tr is None:
                     play_sound(SOUND_ERROR)
@@ -1454,13 +1458,52 @@ def run_app(args):
                         session_parts.setdefault(sid, []).append(text)
                         tag = "final" if final else "chunk"
                         log(f"[·] ({dt:.1f}s) {tag}: {text}")
+                        if mode == "call" and not final:
+                            calls.append_chunk(job.get("path"), text)
 
                 if not final:
                     continue  # промежуточный чанк — просто накопили, ждём дальше
 
-                # ── финализация сессии: склейка + polish + доставка ───────
+                # ── финализация сессии: склейка ─────────────────────────────
                 parts = session_parts.pop(sid, [])
                 full = streaming.join_parts(parts)
+
+                if mode == "call":
+                    # Звонки не проходят через Smart-полиш (не имеет смысла
+                    # на получасовом транскрипте) — только детерминированные
+                    # замены, как и у диктовки.
+                    full = apply_replacements(full, config.load()["replacements"])
+                    path = job.get("path")
+                    if not full:
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
+                        notify("Voice Type", "Пустой звонок — ничего не сохранено")
+                    else:
+                        try:
+                            calls.finalize(path, full)
+                        except OSError as e:
+                            log(f"[!] call transcript save failed: {e}")
+                            notify(
+                                "Voice Type",
+                                "Не удалось сохранить файл звонка (текст всё равно скопирован)",
+                            )
+                        copy_to_clipboard(full)
+                        duration_sec = job.get("duration_sec", 0.0)
+                        calls_items["value"] = calls.add(path, full, duration_sec)
+                        menu_dirty["value"] = True
+                        play_sound(SOUND_DONE)
+                        mins = int(duration_sec) // 60
+                        secs = int(duration_sec) % 60
+                        notify(
+                            "Voice Type",
+                            f"Звонок расшифрован ({mins:02d}:{secs:02d}) — скопировано в буфер",
+                        )
+                    continue
+
+                # ── диктовка: опциональный Smart-полиш + детерминированные
+                # замены + доставка ─────────────────────────────────────────
                 if full and smart_mode["value"] != "raw":
                     if not polisher.is_loaded():
                         notify("Voice Type", "Загружаю LLM… (первый раз)")
@@ -1506,7 +1549,10 @@ def run_app(args):
                 session_parts.pop(sid, None)
             finally:
                 if final:
-                    state["value"] = "idle"
+                    if mode == "call":
+                        call_state["value"] = "idle"
+                    else:
+                        state["value"] = "idle"
 
     threading.Thread(target=worker, daemon=True).start()
 
