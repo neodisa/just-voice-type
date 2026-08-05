@@ -1589,7 +1589,8 @@ def run_app(args):
                 if tr is None:
                     play_sound(SOUND_ERROR)
                     notify("Voice Type", "Model not loaded")
-                    session_parts.pop(sid, None)
+                    if mode != "call":
+                        session_parts.pop(sid, None)
                     continue
 
                 # ── транскрипция куска (если он есть) ──────────────────────
