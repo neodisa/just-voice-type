@@ -1577,7 +1577,9 @@ def run_app(args):
         macOS его отключает, и отпускание клавиши теряется). Этот же поток
         периодически (по таймауту 0.5с) отрезает чанк уже сказанного и шлёт
         его на транскрипцию — так длинная диктовка переводится «под капотом»,
-        пока вы говорите, и в конце ждать почти нечего.
+        пока вы говорите, и в конце ждать почти нечего. Звонки (Call Mode)
+        обслуживаются тем же потоком по тому же принципу, отдельным
+        Recorder-инстансом на своём устройстве.
         """
         while True:
             try:
@@ -1617,6 +1619,67 @@ def run_app(args):
                 else:  # abort — выбрасываем сессию без доставки
                     session_parts.pop(sid, None)
                     state["value"] = "idle"
+            elif cmd == "call_start":
+                t0 = time.time()
+                device = current_call_device["value"]
+                if not device:
+                    notify(
+                        "Voice Type",
+                        "Выберите Call Device в меню перед началом записи звонка",
+                    )
+                    ct.active = False
+                elif not _call_device_exists(device):
+                    notify(
+                        "Voice Type",
+                        f"Устройство «{device}» не найдено — проверьте Call Device в меню",
+                    )
+                    ct.active = False
+                else:
+                    try:
+                        new_recorder = Recorder(device=device, all_channels=True)
+                        new_recorder.start()
+                        call_recorder_holder["obj"] = new_recorder
+                        call_session["id"] += 1
+                        call_session["active"] = True
+                        call_session["start_ts"] = time.time()
+                        call_session["path"] = calls.start_transcript(call_session["start_ts"])
+                        call_session["fail_count"] = 0
+                        call_state["value"] = "recording"
+                        ct.active = True
+                        play_sound(SOUND_START)
+                        dt = time.time() - t0
+                        if dt > 0.5:
+                            log(f"[call] start took {dt:.2f}s (stale CoreAudio?)")
+                    except Exception as e:
+                        log(f"[!] call recorder.start failed ({time.time() - t0:.2f}s): {e}")
+                        notify("Voice Type", f"Не удалось начать запись звонка: {e}")
+                        play_sound(SOUND_ERROR)
+                        call_session["active"] = False
+                        call_state["value"] = "idle"
+                        ct.active = False
+            elif cmd == "call_stop":
+                call_recorder = call_recorder_holder["obj"]
+                sid = call_session["id"]
+                path = call_session["path"]
+                duration_sec = time.time() - call_session["start_ts"]
+                call_session["active"] = False
+                call_state["value"] = "transcribing"
+                ct.active = False
+                t0 = time.time()
+                rest = call_recorder.stop() if call_recorder is not None else None
+                dt = time.time() - t0
+                if dt > 1.0:
+                    log(f"[!] call recorder.stop took {dt:.2f}s (stale CoreAudio?)")
+                jobs.put(
+                    {
+                        "audio": rest,
+                        "sid": sid,
+                        "mode": "call",
+                        "final": True,
+                        "path": path,
+                        "duration_sec": duration_sec,
+                    }
+                )
 
             # пока идёт запись — пробуем отрезать готовый кусок в паузе
             if session["active"]:
@@ -1636,6 +1699,44 @@ def run_app(args):
                 if chunk is not None and not streaming.is_silent(chunk):
                     jobs.put(
                         {"audio": chunk, "sid": session["id"], "final": False}
+                    )
+
+            # пока идёт звонок — та же логика, отдельным Recorder-инстансом
+            if call_session["active"]:
+                if time.time() - call_session["start_ts"] > MAX_CALL_SESSION_SEC:
+                    log("[call] hit safety cap — auto-stopping")
+                    ctrl.put("call_stop")
+                    continue
+                call_recorder = call_recorder_holder["obj"]
+                try:
+                    chunk = (
+                        call_recorder.take_chunk(
+                            min_sec=streaming.CHUNK_SEC,
+                            target_sec=streaming.CHUNK_SEC,
+                            hard_max_sec=streaming.CHUNK_HARD_MAX_SEC,
+                        )
+                        if call_recorder is not None
+                        else None
+                    )
+                    call_session["fail_count"] = 0
+                except Exception as e:
+                    chunk = None
+                    call_session["fail_count"] += 1
+                    log(f"[!] call take_chunk: {e} (fail #{call_session['fail_count']})")
+                    if call_session["fail_count"] >= 3:
+                        log("[call] device seems gone — auto-stopping")
+                        notify("Voice Type", "Устройство звонка пропало — запись остановлена")
+                        ctrl.put("call_stop")
+                        continue
+                if chunk is not None and not streaming.is_silent(chunk):
+                    jobs.put(
+                        {
+                            "audio": chunk,
+                            "sid": call_session["id"],
+                            "mode": "call",
+                            "final": False,
+                            "path": call_session["path"],
+                        }
                     )
 
     def _cancel_pending_timer():
