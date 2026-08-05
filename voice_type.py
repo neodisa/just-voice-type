@@ -1676,12 +1676,14 @@ def run_app(args):
                         "Voice Type",
                         "Выберите Call Device в меню перед началом записи звонка",
                     )
+                    call_session["active"] = False
                     ct.active = False
                 elif not _call_device_exists(device):
                     notify(
                         "Voice Type",
                         f"Устройство «{device}» не найдено — проверьте Call Device в меню",
                     )
+                    call_session["active"] = False
                     ct.active = False
                 else:
                     try:
@@ -1811,6 +1813,7 @@ def run_app(args):
         for a in actions:
             if a == gestures.START:
                 state["value"] = "recording"
+                session["active"] = True
                 # калибровка watchdog: сразу после реального нажатия Quartz
                 # обязан видеть клавишу нажатой — иначе опросу верить нельзя
                 # (например, fn) и watchdog для этой клавиши отключается
@@ -1848,6 +1851,8 @@ def run_app(args):
                 if session["active"]:
                     return  # диктовка идёт — звонок не стартуем поверх неё
                 action = ct.on_press(time.time())
+                if action == "call_start":
+                    call_session["active"] = True
                 if action is not None:
                     ctrl.put(action)
         except Exception as e:
