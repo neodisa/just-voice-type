@@ -1484,7 +1484,14 @@ def run_app(args):
             if menu_dirty["value"]:
                 menu_dirty["value"] = False
                 self._build_menu()
-            if state["value"] == "recording":
+            if call_state["value"] == "recording":
+                elapsed = int(now - call_session["start_ts"])
+                blink = "🔴" if int(now * 2) % 2 == 0 else "⭕"
+                self.title = f"📞{blink} {elapsed // 60:02d}:{elapsed % 60:02d}"
+            elif call_state["value"] == "transcribing":
+                dots = "." * (int(now * 2) % 4)
+                self.title = f"📞⏳{dots}"
+            elif state["value"] == "recording":
                 level = max(0.0, min(1.0, recorder.level * 6))
                 n = max(1, int(level * 5))
                 blink = "🔴" if int(now * 2) % 2 == 0 else "⭕"
