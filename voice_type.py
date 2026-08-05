@@ -1473,6 +1473,7 @@ def run_app(args):
             elif session["active"]:
                 notify("Voice Type", "Диктовка идёт — сначала остановите её")
             else:
+                call_session["active"] = True
                 ctrl.put("call_start")
 
         # ── статус-иконка и действия ────────────────────────────────────────
@@ -1700,7 +1701,8 @@ def run_app(args):
             except Exception as e:
                 play_sound(SOUND_ERROR)
                 print(f"[!] {e}", file=sys.stderr)
-                session_parts.pop(sid, None)
+                if mode != "call":
+                    session_parts.pop(sid, None)
             finally:
                 if final:
                     if mode == "call":
@@ -1863,6 +1865,8 @@ def run_app(args):
                         call_state["value"] = "idle"
                         ct.active = False
             elif cmd == "call_stop":
+                if not call_session["active"]:
+                    continue  # уже остановлен — игнорируем дублирующую команду
                 call_recorder = call_recorder_holder["obj"]
                 sid = f"call-{call_session['id']}"
                 path = call_session["path"]
