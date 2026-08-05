@@ -1468,7 +1468,12 @@ def run_app(args):
             notify("Voice Type", "Calls list cleared (files kept on disk)")
 
         def toggle_call(self, _):
-            ctrl.put("call_stop" if call_session["active"] else "call_start")
+            if call_session["active"]:
+                ctrl.put("call_stop")
+            elif session["active"]:
+                notify("Voice Type", "Диктовка идёт — сначала остановите её")
+            else:
+                ctrl.put("call_start")
 
         # ── статус-иконка и действия ────────────────────────────────────────
         def _on_tick(self, _):
@@ -1838,6 +1843,7 @@ def run_app(args):
                         call_session["fail_count"] = 0
                         call_state["value"] = "recording"
                         ct.active = True
+                        menu_dirty["value"] = True
                         play_sound(SOUND_START)
                         dt = time.time() - t0
                         if dt > 0.5:
@@ -1857,6 +1863,7 @@ def run_app(args):
                 call_session["active"] = False
                 call_state["value"] = "transcribing"
                 ct.active = False
+                menu_dirty["value"] = True
                 t0 = time.time()
                 rest = call_recorder.stop() if call_recorder is not None else None
                 dt = time.time() - t0
