@@ -1481,9 +1481,11 @@ def run_app(args):
                             pass
                         notify("Voice Type", "Пустой звонок — ничего не сохранено")
                     else:
+                        saved = True
                         try:
                             calls.finalize(path, full)
                         except OSError as e:
+                            saved = False
                             log(f"[!] call transcript save failed: {e}")
                             notify(
                                 "Voice Type",
@@ -1491,8 +1493,9 @@ def run_app(args):
                             )
                         copy_to_clipboard(full)
                         duration_sec = job.get("duration_sec", 0.0)
-                        calls_items["value"] = calls.add(path, full, duration_sec)
-                        menu_dirty["value"] = True
+                        if saved:
+                            calls_items["value"] = calls.add(path, full, duration_sec)
+                            menu_dirty["value"] = True
                         play_sound(SOUND_DONE)
                         mins = int(duration_sec) // 60
                         secs = int(duration_sec) % 60
