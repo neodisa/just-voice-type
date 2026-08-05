@@ -16,7 +16,8 @@ Hold Right Option and speak, or **double-tap** it for hands-free — your text i
 - 🌐 **Pick the language from the menu** — your working ("favorite") languages plus **Auto** sit at the top; choose one to make it active. **All languages…** lists the full Whisper set (~99) where you check which languages to keep as favorites.
 - 🪄 **Smart modes** — pick **Raw** (verbatim), **Clean** (strip filler & fix punctuation), or **Prompt** (restructure your dictation into a clear instruction for an AI) from the **Smart** menu. Runs a small on-device LLM (`Qwen2.5-1.5B-Instruct-4bit` via `mlx_lm`) — still no cloud. Add domain terms via **Edit vocabulary…** so misheard names/jargon get fixed and bias Whisper itself.
 - 🔤 **Replacements** — a `heard → wanted` map in `config.json` (menu: **Edit replacements…**) rewrites fixed terms in the final text: dictate your IT anglicisms and have them always come out the way you want (e.g. `апруф → апрув`). Whole-word, case-insensitive, applied after transcription (and after any Smart polish) — works with the fast Parakeet model in Raw mode, no extra latency. Edits apply on your next dictation.
-- 💾 **Settings persist** across restarts (favorite languages, active language, hotkey, smart mode, vocabulary, model, insertion mode, replacements) in `~/.config/just-voice-type/config.json`.
+- 📞 **Call Mode** — a second, independent recording mode for calls: captures both sides (your mic + the call's system audio via a virtual loopback device), transcribes continuously in the background, and on stop saves the transcript to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste into any AI for analysis. Independent Start/Stop hotkey (**Call Hotkey**, default `F13`) and menu item; recording one mode blocks the other. See [Call Mode](#call-mode) below for the one-time setup. No speaker labels, no live transcript view, no raw audio saved.
+- 💾 **Settings persist** across restarts (favorite languages, active language, hotkey, smart mode, vocabulary, model, insertion mode, replacements, call hotkey, call device) in `~/.config/just-voice-type/config.json`.
 - 📋 **Auto-paste** of recognized text via clipboard + `Cmd+V`, with original clipboard restored
 - 📝 **Insertion mode** — by default text is pasted via clipboard + Cmd+V (and the previous clipboard is restored). Switch to **Insert via Accessibility** from the menu (under **Smart → Insert via Accessibility**) to type straight into the focused field. In this mode the dictation **lands in the field you started in** even if you switch windows (it inserts into that app in the background), and the **clipboard is never clobbered** — on any fallback the previous clipboard is restored, and every dictation is always kept in the History menu. If the original field can't accept a background insert, the text is kept in history and you get a notification (no window is yanked to the front).
 - 🕘 **History menu** — the last 15 dictations, persisted across restarts (50 kept on disk in `~/.config/just-voice-type/history.json`); click any entry to copy it back to the clipboard
@@ -56,6 +57,30 @@ Notes:
 > Also, because Parakeet doesn't report the detected language, using it with
 > language **Auto** *and* a non-Raw Smart mode can let the LLM translate your
 > text to English — pick your language explicitly (not Auto) to avoid that.
+
+## Call Mode
+
+A second, independent recording mode for calls (Teams, WhatsApp, Zoom, anything). Unlike dictation, Call Mode:
+
+- Records **both sides** — your microphone and the call's system audio — merged into one stream.
+- Runs for as long as the call lasts (up to a 4-hour safety cap), transcribing in the background the same way long dictations do.
+- On stop, saves the full transcript to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste it into any AI tool for analysis. No auto-paste into a field.
+- Starts/stops via the **Call → Start/Stop Call Recording** menu item, or a dedicated toggle hotkey (**Call Hotkey** menu, default `F13`) — independent of the dictation hotkey. Starting one mode blocks the other.
+- Past calls are listed under **Calls** — click one to copy its transcript back to the clipboard, or use **Open Calls folder…**.
+
+Call Mode does **not** do speaker labels, a live growing transcript, or save the raw audio.
+
+### One-time setup (per Mac)
+
+Capturing the other side of a call requires a virtual audio loopback device — macOS has no built-in way to record its own output. This is a one-time setup, not something the app can do for you:
+
+1. Install a virtual audio driver if you don't already have one — e.g. [VB-Cable](https://vb-audio.com/Cable/) or [BlackHole](https://github.com/ExistentialAudio/BlackHole) (free).
+2. Open **Audio MIDI Setup** (Spotlight → "Audio MIDI Setup") and create an **Aggregate Device** combining your Mac's microphone and the virtual cable (e.g. "MacBook Pro Microphone" + "VB-Cable"). This becomes your input — select it in Just Voice Type's **Call Device** menu.
+3. Create a **Multi-Output Device** combining your speakers/headphones and the same virtual cable, so you keep hearing the call while it's captured.
+4. Route the call app's own audio output to that Multi-Output Device — preferred over changing the whole Mac's system output, since it only captures the call itself:
+   - **Teams:** Settings → Devices → Speaker (or, mid-call, the ⋯ menu → Show Device Settings).
+   - **WhatsApp Desktop:** the call screen has its own speaker-selection menu.
+   - Apps without a per-app output picker: change **System Settings → Sound → Output** to the Multi-Output Device for the duration of the call, then switch it back afterward.
 
 ## Requirements
 
