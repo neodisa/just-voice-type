@@ -65,7 +65,7 @@ A second, independent recording mode for calls (Teams, WhatsApp, Zoom, anything)
 - Records **both sides** — your microphone and the call's system audio — merged into one stream.
 - Runs for as long as the call lasts (up to a 4-hour safety cap), transcribing in the background the same way long dictations do.
 - On stop, saves the full transcript to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste it into any AI tool for analysis. No auto-paste into a field.
-- Starts/stops via the **Call → Start/Stop Call Recording** menu item, or a dedicated toggle hotkey (**Call Hotkey** menu, default `F13`) — independent of the dictation hotkey. Starting one mode blocks the other.
+- Starts/stops via the **Start Call Recording** menu item (turns into **■ Stop Call Recording** while active), or a dedicated toggle hotkey (**Call Hotkey** menu, default `F13`) — independent of the dictation hotkey. Starting one mode blocks the other.
 - Past calls are listed under **Calls** — click one to copy its transcript back to the clipboard, or use **Open Calls folder…**.
 
 Call Mode does **not** do speaker labels, a live growing transcript, or save the raw audio.
