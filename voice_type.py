@@ -1840,8 +1840,16 @@ def run_app(args):
             if not enabled["value"]:
                 return
             if key == hotkey_obj_holder["key"]:
+                if call_session["active"]:
+                    return  # звонок пишется — диктовку не стартуем поверх
                 with gesture_lock:
                     _apply_actions(gr.on_press(time.time()), key)
+            elif key == call_hotkey_obj_holder["key"]:
+                if session["active"]:
+                    return  # диктовка идёт — звонок не стартуем поверх неё
+                action = ct.on_press(time.time())
+                if action is not None:
+                    ctrl.put(action)
         except Exception as e:
             log(f"[!] on_press: {e}")
 
@@ -1851,6 +1859,8 @@ def run_app(args):
                 return
             if key == hotkey_obj_holder["key"]:
                 _handle_release(time.time())
+            elif key == call_hotkey_obj_holder["key"]:
+                ct.on_release(time.time())
         except Exception as e:
             log(f"[!] on_release: {e}")
 
