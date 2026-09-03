@@ -189,5 +189,124 @@ class TestRecorderStopSurvivesWedgedCoreAudio(unittest.TestCase):
         self.rec._reinit_portaudio()
         self.assertEqual(calls, ["terminate", "initialize"])
 
+class _FakeStream:
+    """Свежий стрим, который открывается мгновенно."""
+
+    samplerate = 48000
+    channels = 1
+
+    def start(self):
+        pass
+
+    def abort(self):
+        pass
+
+    def close(self):
+        pass
+
+
+class TestRecorderRestartStreamSurvivesWedgedCoreAudio(unittest.TestCase):
+    """restart_stream() — путь авто-восстановления звонка при смене
+    аудио-маршрутизации, то есть ровно та ситуация, в которой close()
+    и залипает. Он не имеет права вешать control_loop."""
+
+    def setUp(self):
+        self.released = threading.Event()
+        self.addCleanup(self.released.set)
+        self.rec = voice_type.Recorder()
+        self.terminated = []
+        self.rec.sd = types.SimpleNamespace(
+            InputStream=lambda **kw: _FakeStream(),
+            _terminate=lambda: self.terminated.append("terminate"),
+            _initialize=lambda: self.terminated.append("initialize"),
+        )
+        self.rec._native_sr = 48000
+        self.rec._native_channels = 1
+        self.rec._recording = True
+
+    def test_restart_does_not_wait_for_a_wedged_close(self):
+        self.rec._stream = _WedgedStream(self.released)
+        t0 = time.time()
+        ok = self.rec.restart_stream()
+        elapsed = time.time() - t0
+        self.assertTrue(ok)
+        self.assertLess(elapsed, 4.0, "restart_stream() ждёт залипший close()")
+        self.assertIsInstance(self.rec._stream, _FakeStream)
+
+    def test_restart_mutes_the_abandoned_stream(self):
+        np = self.rec.np
+        self.rec._stream = _WedgedStream(self.released)
+        stale_cb = self.rec._make_callback(self.rec._gen)
+        self.rec.restart_stream()
+        # брошенный стрим ещё жив (его close() висит) и продолжает звать
+        # колбэк — в идущий звонок его кадры попадать не должны
+        stale_cb(np.zeros((10, 1), dtype=np.int16), 10, None, None)
+        self.assertEqual(self.rec._frames, [])
+
+    def test_restart_skips_portaudio_reinit_while_close_is_wedged(self):
+        # Pa_Terminate поверх висящего Pa_CloseStream роняет процесс
+        self.rec._stream = _WedgedStream(self.released)
+        self.rec.restart_stream()
+        self.assertEqual(self.terminated, [])
+
+    def test_restart_still_reinits_portaudio_when_close_is_fast(self):
+        # обычный случай: закрытие проходит, и PortAudio надо честно
+        # переинициализировать — иначе «протухший» контекст не лечится
+        self.rec._stream = _FakeStream()
+        self.rec.restart_stream()
+        self.assertEqual(self.terminated, ["terminate", "initialize"])
+
+class TestStreamTeardownAtExit(unittest.TestCase):
+    """Финализация интерпретатора поверх активного Pa_CloseStream роняет
+    процесс с SIGTRAP — на выходе фоновое закрытие надо дождаться, а
+    залипшее — обойти жёстким выходом."""
+
+    def setUp(self):
+        self.released = threading.Event()
+        self.addCleanup(self.released.set)
+        self.rec = voice_type.Recorder()
+        self.rec._native_sr = 16000
+        self.rec._recording = True
+        self.rec._frames = []
+
+    def test_counter_drops_back_to_zero_after_a_fast_teardown(self):
+        self.released.set()
+        self.rec._stream = _WedgedStream(self.released)
+        self.rec.stop()
+        self.assertTrue(
+            voice_type._drain_stream_teardowns_at_exit(timeout=2.0),
+            "быстрое закрытие не дождались",
+        )
+        self.assertEqual(voice_type._stream_teardowns["count"], 0)
+
+    def test_hard_exits_when_teardown_is_wedged(self):
+        exits = []
+        self.rec._stream = _WedgedStream(self.released)
+        self.rec.stop()
+        drained = voice_type._drain_stream_teardowns_at_exit(
+            timeout=0.2, hard_exit=exits.append
+        )
+        self.assertFalse(drained)
+        self.assertEqual(exits, [0])
+
+    def test_exit_drain_is_registered_after_sounddevice_import(self):
+        # atexit — LIFO: наш дренаж должен встать ПОСЛЕ sounddevice, иначе
+        # его Pa_Terminate на выходе прилетит поверх живого Pa_CloseStream
+        import atexit as _atexit
+
+        voice_type._exit_drain_registered["done"] = False
+        before = _atexit._ncallbacks()
+        voice_type.Recorder()
+        self.assertTrue(voice_type._exit_drain_registered["done"])
+        self.assertEqual(_atexit._ncallbacks(), before + 1)
+        # повторная регистрация не плодит обработчиков
+        voice_type._register_exit_drain()
+        self.assertEqual(_atexit._ncallbacks(), before + 1)
+
+    def test_no_wait_when_nothing_is_in_flight(self):
+        t0 = time.time()
+        self.assertTrue(voice_type._drain_stream_teardowns_at_exit(timeout=5.0))
+        self.assertLess(time.time() - t0, 1.0)
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,7 @@ macOS permissions (System Settings → Privacy & Security):
 from __future__ import annotations
 
 import argparse
+import atexit
 import os
 import queue
 import re
@@ -100,6 +101,56 @@ def _require(pkg: str, pip_name: Optional[str] = None):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+# Сколько фоновых закрытий аудиопотока (Pa_AbortStream/Pa_CloseStream)
+# сейчас в полёте на весь процесс — см. Recorder._close_stream_async и
+# _drain_stream_teardowns_at_exit.
+_stream_teardowns = {"count": 0}
+_stream_teardowns_lock = threading.Lock()
+
+
+def _drain_stream_teardowns_at_exit(timeout: float = 1.0, hard_exit=None) -> bool:
+    """Дождаться фоновых закрытий аудиопотока перед выходом из процесса.
+
+    Если дать интерпретатору финализироваться, пока фоновый поток сидит
+    внутри Pa_CloseStream, процесс падает с SIGTRAP вместо тихого выхода —
+    и пользователь видит «Voice Type quit unexpectedly» на обычном Quit.
+    Обычное закрытие успевает за миллисекунды; залипшее не дождётся никогда,
+    поэтому по таймауту выходим жёстко, минуя финализацию.
+
+    True — всё закрылось штатно, False — пришлось выйти жёстко.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with _stream_teardowns_lock:
+            if _stream_teardowns["count"] == 0:
+                return True
+        time.sleep(0.02)
+    with _stream_teardowns_lock:
+        if _stream_teardowns["count"] == 0:
+            return True
+    sys.stdout.flush()
+    sys.stderr.flush()
+    (hard_exit or os._exit)(0)
+    return False
+
+
+_exit_drain_registered = {"done": False}
+
+
+def _register_exit_drain() -> None:
+    """Поставить дренаж на atexit — обязательно ПОСЛЕ импорта sounddevice.
+
+    atexit разбирает обработчики в обратном порядке регистрации, а
+    sounddevice ставит свой Pa_Terminate при импорте. Зарегистрируйся
+    раньше него — и Pa_Terminate на выходе ляжет поверх ещё живого
+    Pa_CloseStream в фоновом потоке, то есть SIGTRAP вместо тихого выхода.
+    """
+    if _exit_drain_registered["done"]:
+        return
+    _exit_drain_registered["done"] = True
+    atexit.register(_drain_stream_teardowns_at_exit)
+
+
 def log(msg: str, err: bool = False) -> None:
     """Лог с таймстампом (при запуске из .app stdout/stderr уходят в
     ~/Library/Logs/WhisperFlow/whisper_flow{,.err}.log)."""
@@ -162,6 +213,7 @@ class Recorder:
     def __post_init__(self):
         self.sd = _require("sounddevice")
         self.np = _require("numpy")
+        _register_exit_drain()
         self._frames: list = []
         self._stream = None
         self._lock = threading.Lock()
@@ -287,6 +339,8 @@ class Recorder:
             self._teardowns[tid] = {
                 "phase": "abort", "t0": time.time(), "reported": False,
             }
+        with _stream_teardowns_lock:
+            _stream_teardowns["count"] += 1
 
         def _teardown():
             try:
@@ -306,10 +360,25 @@ class Recorder:
             finally:
                 with self._teardown_lock:
                     self._teardowns.pop(tid, None)
+                with _stream_teardowns_lock:
+                    _stream_teardowns["count"] -= 1
 
         threading.Thread(
             target=_teardown, daemon=True, name="audio-teardown"
         ).start()
+
+    def _wait_teardowns(self, timeout: float) -> bool:
+        """Подождать не дольше timeout, пока фоновые abort/close добьются
+        своего. True — всё закрылось (значит PortAudio можно честно
+        переинициализировать), False — что-то ещё висит."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._teardown_lock:
+                if not self._teardowns:
+                    return True
+            time.sleep(0.02)
+        with self._teardown_lock:
+            return not self._teardowns
 
     def stuck_teardown(self, older_than: float = 5.0):
         """Самое долгое незакрытое abort/close старше older_than секунд —
@@ -414,15 +483,17 @@ class Recorder:
         with self._lock:
             stream = self._stream
             self._stream = None
+            # запись продолжается, поэтому брошенный стрим надо заглушить
+            # немедленно: иначе его колбэк досыпал бы звук в звонок
+            self._gen += 1
         if stream is not None:
-            try:
-                stream.abort()
-            except Exception:
-                pass
-            try:
-                stream.close()
-            except Exception:
-                pass
+            # закрываем в фоне: именно здесь CoreAudio и залипает — при
+            # смене маршрутизации, ради которой мы и переоткрываемся
+            self._close_stream_async(stream)
+            # но обычному, быстрому закрытию даём чуть-чуть времени: тогда
+            # _reinit_portaudio отработает полностью, а не пропустит
+            # Pa_Terminate из-за ещё живого фонового потока
+            self._wait_teardowns(1.5)
         self._reinit_portaudio()
         ok = self._try_open()
         if ok:
