@@ -181,6 +181,30 @@ class Recorder:
         # сюда сливаются сырые кадры при снятии чанка; отдельно от _frames,
         # чтобы не смешивать форматы (callback пишет int16, а хвост — float)
         self._carry = None
+        # поколение стрима. Закрытие стрима может залипнуть в CoreAudio
+        # навсегда (см. _close_stream_async), и его колбэк продолжает
+        # тикать. Колбэк привязан к поколению — кадры брошенного стрима
+        # не попадут в следующую диктовку.
+        self._gen = 0
+        # висящие abort/close: id → {phase, t0, reported}
+        self._teardowns: dict = {}
+        self._teardown_seq = 0
+        self._teardown_lock = threading.Lock()
+
+    def _make_callback(self, gen: int):
+        """Колбэк, привязанный к поколению стрима.
+
+        Если стрим уже брошен (его закрытие висит в CoreAudio), его кадры
+        игнорируются: иначе «протухший» стрим досыпал бы чужой звук в уже
+        начатую новую диктовку и портил индикатор уровня.
+        """
+
+        def _cb(indata, frames, time_info, status):
+            if gen != self._gen:
+                return
+            self._callback(indata, frames, time_info, status)
+
+        return _cb
 
     def _callback(self, indata, frames, time_info, status):
         if status:
@@ -246,6 +270,60 @@ class Recorder:
             print(f"[!] could not detect device parameters: {e}", file=sys.stderr)
             return 48000, 1
 
+    def _close_stream_async(self, stream):
+        """Закрыть стрим в отдельном потоке и не ждать его.
+
+        Pa_AbortStream/Pa_CloseStream на CoreAudio умеют вставать намертво
+        (смена аудио-устройства, выход из сна, занятый HAL-лок). Раньше это
+        вешало control_loop: звук уже был снят с буфера, но stop() не
+        возвращался — записанный текст терялся, и приложение больше не
+        писало до перезапуска. Теперь блокирующая часть уезжает в фон:
+        stop() отдаёт аудио сразу, а зависший поток висит сам по себе
+        (лишний зомби-поток дешевле потерянной диктовки).
+        """
+        with self._teardown_lock:
+            self._teardown_seq += 1
+            tid = self._teardown_seq
+            self._teardowns[tid] = {
+                "phase": "abort", "t0": time.time(), "reported": False,
+            }
+
+        def _teardown():
+            try:
+                try:
+                    stream.abort()
+                except Exception:
+                    pass
+                with self._teardown_lock:
+                    entry = self._teardowns.get(tid)
+                    if entry is not None:
+                        entry["phase"] = "close"
+                        entry["t0"] = time.time()
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+            finally:
+                with self._teardown_lock:
+                    self._teardowns.pop(tid, None)
+
+        threading.Thread(
+            target=_teardown, daemon=True, name="audio-teardown"
+        ).start()
+
+    def stuck_teardown(self, older_than: float = 5.0):
+        """Самое долгое незакрытое abort/close старше older_than секунд —
+        (phase, seconds) или None. Один и тот же случай отдаётся один раз,
+        чтобы watchdog не спамил в лог."""
+        now = time.time()
+        with self._teardown_lock:
+            for entry in self._teardowns.values():
+                age = now - entry["t0"]
+                if age > older_than and not entry["reported"]:
+                    entry["reported"] = True
+                    return entry["phase"], age
+        return None
+
     def _reinit_portaudio(self):
         """Перезапуск PortAudio внутри процесса.
 
@@ -257,20 +335,29 @@ class Recorder:
         определить текущий дефолтный микрофон.
         """
         if self._stream is not None:
+            stream, self._stream = self._stream, None
+            self._gen += 1
+            self._close_stream_async(stream)
+        # Pa_Terminate поверх висящего Pa_CloseStream — это краш процесса,
+        # поэтому пока закрытие в полёте, ограничиваемся сбросом кэша
+        # устройства.
+        with self._teardown_lock:
+            pending = bool(self._teardowns)
+        if pending:
+            log(
+                "[audio] PortAudio reinit skipped — stream teardown still in "
+                "flight (CoreAudio hung)",
+                err=True,
+            )
+        else:
             try:
-                self._stream.stop()
-                self._stream.close()
+                self.sd._terminate()
             except Exception:
                 pass
-            self._stream = None
-        try:
-            self.sd._terminate()
-        except Exception:
-            pass
-        try:
-            self.sd._initialize()
-        except Exception as e:
-            print(f"[!] reinit PortAudio: {e}", file=sys.stderr)
+            try:
+                self.sd._initialize()
+            except Exception as e:
+                print(f"[!] reinit PortAudio: {e}", file=sys.stderr)
         self._native_sr = None
         self._native_channels = 1
 
@@ -279,6 +366,8 @@ class Recorder:
             self._native_sr, self._native_channels = self._detect_native_params()
         # стратегия открытия: сначала native sr, потом 16000, потом без указания
         fallback_ch = self._native_channels if self.all_channels else 1
+        self._gen += 1
+        gen = self._gen
         tried = []
         for sr, ch in [
             (self._native_sr, self._native_channels),
@@ -286,23 +375,29 @@ class Recorder:
             (44100, fallback_ch),
             (None, None),  # пусть PortAudio сам решит
         ]:
+            stream = None
             try:
-                kwargs = {"dtype": "int16", "callback": self._callback}
+                kwargs = {"dtype": "int16", "callback": self._make_callback(gen)}
                 if sr is not None:
                     kwargs["samplerate"] = sr
                 if ch is not None:
                     kwargs["channels"] = ch
                 if self.device is not None:
                     kwargs["device"] = self.device
-                self._stream = self.sd.InputStream(**kwargs)
-                self._stream.start()
-                actual_sr = int(self._stream.samplerate)
+                stream = self.sd.InputStream(**kwargs)
+                stream.start()
+                self._stream = stream
+                actual_sr = int(stream.samplerate)
                 self._native_sr = actual_sr
-                if self._stream.channels:
-                    self._native_channels = int(self._stream.channels)
+                if stream.channels:
+                    self._native_channels = int(stream.channels)
                 log(f"[i] stream opened: sr={actual_sr}, ch={self._native_channels}")
                 return True
             except Exception as e:
+                # стрим мог успеть открыться и упасть на start() — такой
+                # брошенный audio unit как раз и «протухает» со временем
+                if stream is not None:
+                    self._close_stream_async(stream)
                 tried.append(f"sr={sr},ch={ch}: {e}")
                 continue
         log("[!] failed to open microphone: " + "; ".join(tried), err=True)
@@ -356,6 +451,13 @@ class Recorder:
         if self._try_open():
             return
         self._recording = False
+        with self._teardown_lock:
+            pending = bool(self._teardowns)
+        if pending:
+            raise RuntimeError(
+                "microphone busy: CoreAudio is still tearing down the previous "
+                "stream — restart Voice Type if this repeats"
+            )
         raise RuntimeError("failed to open microphone even after PortAudio reinit")
 
     def _to_mono_native(self, raw):
@@ -437,17 +539,12 @@ class Recorder:
             carry = self._carry
             self._carry = None
         if self._stream is not None:
-            # abort() отбрасывает буферы и возвращается быстрее stop();
-            # на «протухшем» CoreAudio-потоке stop() может зависнуть надолго
-            try:
-                self._stream.abort()
-            except Exception:
-                pass
-            try:
-                self._stream.close()
-            except Exception:
-                pass
-            self._stream = None
+            # Аудио уже снято с буфера выше, так что закрытие стрима нам
+            # больше не нужно синхронно — а зависнуть в CoreAudio оно может
+            # навсегда. Отдаём его фоновому потоку и возвращаем текст.
+            stream, self._stream = self._stream, None
+            self._gen += 1  # колбэк брошенного стрима больше не пишет
+            self._close_stream_async(stream)
         if carry is None or len(carry) == 0:
             return None
 
@@ -1620,6 +1717,10 @@ def run_app(args):
                сами. В hands-free клавиша отпущена легально — не трогаем.
             2) Зависший stop: если после запроса остановки PortAudio молчит
                дольше 5с — честно сообщаем в лог и чиним UI.
+            3) Зависшее закрытие стрима: сама диктовка уже доставлена
+               (stop() больше не ждёт CoreAudio), но микрофон может не
+               открыться на следующей записи — пишем в лог, что именно
+               залипло.
             """
             # 1) только в режиме удержания (ptt)
             if gr.mode == "ptt" and watchdog["trusted"]:
@@ -1642,6 +1743,19 @@ def run_app(args):
                 watchdog["stop_at"] = None
                 play_sound(SOUND_ERROR)
                 state["value"] = "idle"
+            # 3) залипшее закрытие стрима в фоне
+            for rec in (recorder, call_recorder_holder["obj"]):
+                if rec is None:
+                    continue
+                stuck = rec.stuck_teardown(5.0)
+                if stuck is not None:
+                    phase, age = stuck
+                    log(
+                        f"[audio] stream.{phase}() hung for {age:.0f}s in "
+                        "CoreAudio — dictation was delivered, but the mic may "
+                        "fail to open until the audio subsystem recovers",
+                        err=True,
+                    )
 
         def toggle_enabled(self, _):
             enabled["value"] = not enabled["value"]
@@ -1937,6 +2051,7 @@ def run_app(args):
                 except Exception as e:
                     log(f"[!] recorder.start failed ({time.time() - t0:.2f}s): {e}")
                     play_sound(SOUND_ERROR)
+                    notify("Voice Type", f"Микрофон не открылся: {e}")
                     session["active"] = False
                     state["value"] = "idle"
             elif cmd in ("stop", "abort"):
