@@ -53,6 +53,18 @@ def find_split_point(
     return lo + quiet + win // 2
 
 
+def resample_to_16k(audio: np.ndarray, src_sr: int) -> np.ndarray:
+    """Линейный ресемпл моно-float32 в 16 кГц. src_sr==16000 → без изменений.
+    Общий хелпер для Recorder (микрофон) и SystemAudioCapture (tap 48 кГц)."""
+    if src_sr == 16000 or len(audio) <= 1:
+        return audio.astype(np.float32)
+    new_len = int(round(len(audio) * 16000 / src_sr))
+    if new_len <= 1:
+        return audio.astype(np.float32)
+    old_idx = np.linspace(0, len(audio) - 1, new_len)
+    return np.interp(old_idx, np.arange(len(audio)), audio).astype(np.float32)
+
+
 def is_silent(audio: np.ndarray, rms_thresh: float = 0.003, peak_thresh: float = 0.02) -> bool:
     """Тот же порог тишины, что и в записи — чтобы не гонять тихие чанки
     через модель (защита от 'Thank you'-галлюцинаций)."""

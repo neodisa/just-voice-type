@@ -37,8 +37,12 @@ DEFAULTS = {
     "call_hotkey": "f13",
     # Устройство записи для звонков (имя из sounddevice.query_devices(),
     # обычно Aggregate Device: микрофон + виртуальный loopback). None = не
-    # настроено — Call Mode откажется стартовать.
+    # настроено — тогда Call Mode пишет через авто-захват или голый микрофон.
     "call_device": None,
+    # Авто-захват системного звука в Call Mode через Core Audio process tap
+    # (macOS 14.4+, Swift-хелпер). True = пытаться автоматически; иначе ручной
+    # Call Device. См. system_audio.choose_source.
+    "auto_system_audio": True,
 }
 
 SMART_MODES = ("raw", "clean", "prompt")
@@ -57,6 +61,7 @@ def _defaults_copy() -> "dict[str, Any]":
         "replacements": dict(DEFAULTS["replacements"]),
         "call_hotkey": DEFAULTS["call_hotkey"],
         "call_device": DEFAULTS["call_device"],
+        "auto_system_audio": DEFAULTS["auto_system_audio"],
     }
 
 
@@ -131,6 +136,12 @@ def _validate(raw: Any) -> "dict[str, Any]":
     call_dev = raw.get("call_device")
     if isinstance(call_dev, str) and call_dev.strip():
         cfg["call_device"] = call_dev.strip()
+
+    asa = raw.get("auto_system_audio")
+    if isinstance(asa, bool):
+        cfg["auto_system_audio"] = asa
+    else:
+        cfg["auto_system_audio"] = DEFAULTS["auto_system_audio"]
 
     # звонок и диктовка не могут висеть на одной и той же клавише
     if cfg["call_hotkey"] == cfg["hotkey"]:

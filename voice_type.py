@@ -30,6 +30,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+import call_health
 import calls
 import config
 import gestures
@@ -37,6 +38,7 @@ import history
 import languages
 import polish
 import streaming
+import system_audio
 
 # единственный источник правды о версии; бампается при каждом релизе
 # (тег vX.Y.Z в git должен совпадать)
@@ -165,6 +167,13 @@ class Recorder:
         self._lock = threading.Lock()
         self._recording = False
         self._level: float = 0.0
+        # сглаженные пиковые уровни ПО КАЖДОМУ каналу (до даунмикса) — чтобы
+        # ловить отвал одного источника звонка (см. call_health.ChannelHealthMonitor)
+        self._channel_levels: "list[float]" = []
+        # монотонные часы (инъекция ради тестов) + метка последнего кадра из
+        # callback — для детекта «зависшего» потока при смене аудио-устройства
+        self._clock = time.monotonic
+        self._last_frame_ts: Optional[float] = None
         # реальный sample rate микрофона (узнаём при первом старте)
         self._native_sr: Optional[int] = None
         self._native_channels: int = 1
@@ -176,14 +185,48 @@ class Recorder:
     def _callback(self, indata, frames, time_info, status):
         if status:
             print(f"[audio] {status}", file=sys.stderr)
+        # метка «кадры идут» — ставим всегда; пропажа кадров дольше порога
+        # означает зависший/отвалившийся поток (см. seconds_since_last_frame)
+        self._last_frame_ts = self._clock()
         try:
             peak = float(self.np.max(self.np.abs(indata))) / 32768.0
             self._level = self._level * 0.6 + peak * 0.4
+            self._update_channel_levels(indata)
         except Exception:
             pass
         with self._lock:
             if self._recording:
                 self._frames.append(indata.copy())
+
+    def _update_channel_levels(self, indata):
+        """EMA пикового уровня по каждому каналу (0..1). Число каналов берём из
+        кадра; при смене раскладки просто переинициализируем аккумулятор."""
+        arr = self.np.abs(indata.astype(self.np.float64))
+        if arr.ndim == 2:
+            peaks = arr.max(axis=0) / 32768.0
+        else:
+            peaks = self.np.array([arr.max() / 32768.0])
+        n = len(peaks)
+        if len(self._channel_levels) != n:
+            self._channel_levels = [0.0] * n
+        for i in range(n):
+            self._channel_levels[i] = (
+                self._channel_levels[i] * 0.6 + float(peaks[i]) * 0.4
+            )
+
+    @property
+    def channel_levels(self) -> "list[float]":
+        return list(self._channel_levels)
+
+    def seconds_since_last_frame(self, now: "Optional[float]" = None) -> float:
+        """Сколько прошло с последнего кадра из callback. inf — если кадров
+        ещё не было. При живом потоке ~длина одного буфера; большое значение =
+        поток встал (устройство пропало/сменилось)."""
+        if self._last_frame_ts is None:
+            return float("inf")
+        if now is None:
+            now = self._clock()
+        return now - self._last_frame_ts
 
     def _detect_native_params(self):
         """Берём указанное (или дефолтное) входное устройство и его нативные
@@ -265,6 +308,34 @@ class Recorder:
         log("[!] failed to open microphone: " + "; ".join(tried), err=True)
         return False
 
+    def restart_stream(self) -> bool:
+        """Переоткрыть поток на ТОМ ЖЕ устройстве, не теряя накопленный хвост
+        (_carry) — авто-восстановление звонка при смене аудио-маршрутизации
+        (наушники) или «протухшем» CoreAudio, без остановки записи.
+
+        Возвращает True, если поток снова открыт. `_carry` и файл транскрипта
+        не трогаем — потеряется лишь короткий фрагмент, пока поток был закрыт.
+        """
+        with self._lock:
+            stream = self._stream
+            self._stream = None
+        if stream is not None:
+            try:
+                stream.abort()
+            except Exception:
+                pass
+            try:
+                stream.close()
+            except Exception:
+                pass
+        self._reinit_portaudio()
+        ok = self._try_open()
+        if ok:
+            # свежий отсчёт, чтобы детектор «стойла» не сработал повторно до
+            # первого кадра нового потока
+            self._last_frame_ts = self._clock()
+        return ok
+
     def start(self):
         with self._lock:
             if self._recording:
@@ -272,6 +343,10 @@ class Recorder:
             self._frames = []
             self._carry = None
             self._recording = True
+            # базовый отсчёт «стойла»: если после старта кадры так и не пойдут
+            # в течение CALL_STALL_SEC — это реальный сбой, а не то, что мы
+            # спросили слишком рано
+            self._last_frame_ts = self._clock()
         # Пытаемся открыть; если не вышло — переинициализируем PortAudio и
         # пробуем ещё раз (это лечит «протухший» аудио-контекст без рестарта app).
         if self._try_open():
@@ -292,17 +367,8 @@ class Recorder:
         return raw.astype(self.np.float32) / 32768.0
 
     def _resample_16k(self, audio_native):
-        """float-моно нативный sr → float32-моно 16кГц (линейная интерполяция)."""
-        src_sr = self._native_sr or SAMPLE_RATE
-        if src_sr == SAMPLE_RATE or len(audio_native) <= 1:
-            return audio_native.astype(self.np.float32)
-        new_len = int(round(len(audio_native) * SAMPLE_RATE / src_sr))
-        if new_len <= 1:
-            return audio_native.astype(self.np.float32)
-        old_idx = self.np.linspace(0, len(audio_native) - 1, new_len)
-        return self.np.interp(
-            old_idx, self.np.arange(len(audio_native)), audio_native
-        ).astype(self.np.float32)
+        """float-моно нативный sr → float32-моно 16кГц (общий хелпер streaming)."""
+        return streaming.resample_to_16k(audio_native, self._native_sr or SAMPLE_RATE)
 
     def _drain_frames_locked(self):
         """Слить сырые кадры из callback в _carry (нативный моно float).
@@ -345,6 +411,20 @@ class Recorder:
             prefix_native = carry[:split]
             self._carry = carry[split:]
         return self._resample_16k(prefix_native)
+
+    def drain_16k(self):
+        """Слить весь накопленный звук как float32-моно 16кГц и очистить буфер.
+        Для микса с системным звуком (CombinedCallCapture) — сырой слив без
+        поиска тихой точки; резку на чанки делает объединённый поток."""
+        with self._lock:
+            if not self._recording:
+                return self.np.empty(0, dtype=self.np.float32)
+            self._drain_frames_locked()
+            carry = self._carry
+            self._carry = None
+        if carry is None or len(carry) == 0:
+            return self.np.empty(0, dtype=self.np.float32)
+        return self._resample_16k(carry)
 
     def stop(self):
         """Останавливает запись и возвращает остаток как float32-моно 16кГц
@@ -1001,6 +1081,7 @@ def run_app(args):
     current_hotkey = {"value": cfg["hotkey"]}
     current_call_hotkey = {"value": cfg["call_hotkey"]}
     current_call_device = {"value": cfg["call_device"]}
+    current_auto_sysaudio = {"value": cfg["auto_system_audio"]}
     # модель: явный CLI-флаг → конфиг (выбор из меню) → дефолт движка.
     # По умолчанию на Apple Silicon — Parakeet: ~10× быстрее Whisper при
     # сопоставимой точности на ru/uk/en. CPU-фоллбэк остаётся на large-v3.
@@ -1110,12 +1191,34 @@ def run_app(args):
                         callback=self.toggle_call,
                     ),
                     self._call_hotkey_menu(),
+                    self._auto_sysaudio_item(),
                     self._call_device_menu(),
                     self._calls_menu(),
                     None,
                     rumps.MenuItem("Quit", callback=self.quit_app),
                 ]
             )
+
+        def _auto_sysaudio_item(self):
+            """Чек-пункт «Авто-захват системного звука». Активен только если
+            система поддерживает process tap (macOS 14.4+ и хелпер на месте)."""
+            supported = system_audio.is_supported()
+            it = rumps.MenuItem(
+                "Авто-захват системного звука",
+                callback=self.toggle_auto_sysaudio if supported else None,
+            )
+            it.state = 1 if (supported and current_auto_sysaudio["value"]) else 0
+            return it
+
+        def toggle_auto_sysaudio(self, sender):
+            current_auto_sysaudio["value"] = not current_auto_sysaudio["value"]
+            sender.state = 1 if current_auto_sysaudio["value"] else 0
+            c = config.load()
+            c["auto_system_audio"] = current_auto_sysaudio["value"]
+            config.save(c)
+            state_txt = "включён" if current_auto_sysaudio["value"] else "выключен"
+            print(f"[i] Auto system-audio: {current_auto_sysaudio['value']}")
+            notify("Voice Type", f"Авто-захват системного звука {state_txt}")
 
         def _hotkey_menu(self):
             items = []
@@ -1560,6 +1663,9 @@ def run_app(args):
 
     # накопленные транскрипты чанков по сессиям: sid → [str, ...]
     session_parts: dict = {}
+    # звонки: sid -> [(ts_sec, текст)] — реплики обеих дорожек, хронология
+    # восстанавливается сортировкой при финализации (calls.assemble)
+    call_lines: dict = {}
 
     def _wait_transcriber():
         tr = get_transcriber()
@@ -1575,6 +1681,17 @@ def run_app(args):
             job = jobs.get()
             if job is None:
                 return
+            # marker-job: служебная метка в транскрипт звонка (например, о
+            # пропуске записи при переоткрытии потока). Кладём её в call_lines с
+            # меткой времени — тогда она встанет в хронологию и переживёт
+            # финализацию — и дописываем в файл для живой durability.
+            marker = job.get("marker")
+            if marker is not None:
+                m_sid = job.get("sid")
+                m_ts = float(job.get("ts") or 0.0)
+                call_lines.setdefault(m_sid, []).append((m_ts, marker))
+                calls.append_chunk(job.get("path"), calls.format_line(m_ts, marker))
+                continue
             audio = job.get("audio")
             sid = job.get("sid")
             final = job.get("final", True)
@@ -1608,18 +1725,28 @@ def run_app(args):
                         print(f"[·] ({dt:.1f}s) hallucination, skipping: {text!r}")
                         text = ""
                     if text:
-                        session_parts.setdefault(sid, []).append(text)
                         tag = "final" if final else "chunk"
-                        log(f"[·] ({dt:.1f}s) {tag}: {text}")
-                        if mode == "call" and not final:
-                            calls.append_chunk(job.get("path"), text)
+                        if mode == "call":
+                            # у звонка реплики двух дорожек приходят вперемешку —
+                            # храним с меткой времени и сортируем при финализации
+                            ts = float(job.get("ts") or 0.0)
+                            call_lines.setdefault(sid, []).append((ts, text))
+                            side = job.get("side", "?")
+                            log(f"[·] ({dt:.1f}s) {tag} [{side} @{calls.format_timestamp(ts)}]: {text}")
+                            calls.append_chunk(job.get("path"), calls.format_line(ts, text))
+                        else:
+                            session_parts.setdefault(sid, []).append(text)
+                            log(f"[·] ({dt:.1f}s) {tag}: {text}")
 
                 if not final:
                     continue  # промежуточный чанк — просто накопили, ждём дальше
 
                 # ── финализация сессии: склейка ─────────────────────────────
-                parts = session_parts.pop(sid, [])
-                full = streaming.join_parts(parts)
+                if mode == "call":
+                    full = calls.assemble(call_lines.pop(sid, []))
+                else:
+                    parts = session_parts.pop(sid, [])
+                    full = streaming.join_parts(parts)
 
                 if mode == "call":
                     # Звонки не проходят через Smart-полиш (не имеет смысла
@@ -1752,16 +1879,22 @@ def run_app(args):
     # ── Call Mode: отдельная запись, независимая от диктовки ────────────────
     ct = gestures.CallToggle()
     call_recorder_holder = {"obj": None}
-    # fail_count: последовательные ошибки take_chunk подряд — если устройство
-    # (например, VB-Cable) пропало посреди звонка, после нескольких подряд
-    # неудач останавливаем звонок сами, а не крутимся вечно молча.
+    # per-call health-объекты (создаются на call_start): политика авто-
+    # восстановления потока и детектор отвала одного аудио-источника.
+    call_health_holder = {"recovery": None, "channels": None}
     call_session = {
-        "id": 0, "active": False, "start_ts": 0.0, "path": None, "fail_count": 0,
+        "id": 0, "active": False, "start_ts": 0.0, "path": None,
     }
     call_state = {"value": "idle"}  # idle | recording | transcribing
     # авто-стоп забытого звонка (страховка) — намного длиннее диктовочного,
     # звонки идут долго
     MAX_CALL_SESSION_SEC = 4 * 3600.0
+    # нет кадров из callback дольше этого при активном звонке = поток встал
+    # (устройство пропало/сменилось) → пробуем переоткрыть, не роняя запись
+    CALL_STALL_SEC = 2.0
+    # метка провала записи в транскрипте (переживает finalize, т.к. идёт через
+    # session_parts воркера, а не пишется в файл напрямую)
+    CALL_GAP_MARKER_TMPL = "[⚠ пропуск записи ~{n}s — переоткрытие аудио]"
 
     def _call_device_exists(name):
         try:
@@ -1824,47 +1957,67 @@ def run_app(args):
                     state["value"] = "idle"
             elif cmd == "call_start":
                 t0 = time.time()
-                device = current_call_device["value"]
-                if not device:
+                # выбор источника: авто-захват системы (tap+микрофон) →
+                # ручной Call Device → голый микрофон. Звонок никогда не падает
+                # молча: в худшем случае пишем хотя бы твой голос.
+                tap_supported = system_audio.is_supported()
+                kind, device, reason = system_audio.choose_source(
+                    auto_enabled=current_auto_sysaudio["value"],
+                    tap_supported=tap_supported,
+                    tap_device="tap" if tap_supported else None,
+                    manual_device=current_call_device["value"],
+                )
+                if kind == "manual" and not _call_device_exists(device):
                     notify(
                         "Voice Type",
-                        "Выберите Call Device в меню перед началом записи звонка",
+                        f"Устройство «{device}» не найдено — пишу только микрофон",
                     )
+                    kind, device, reason = "mic", None, "mic_only"
+                try:
+                    start_ts = time.time()
+                    path = calls.start_transcript(start_ts)
+                    if kind == "tap":
+                        # система через Swift-хелпер + твой микрофон, микс
+                        source = system_audio.CombinedCallCapture(
+                            mic=Recorder(device=None, all_channels=False)
+                        )
+                    elif kind == "manual":
+                        source = Recorder(device=device, all_channels=True)
+                    else:  # mic
+                        source = Recorder(device=None, all_channels=False)
+                    source.start()
+                    call_recorder_holder["obj"] = source
+                    call_session["id"] += 1
+                    call_session["active"] = True
+                    call_session["start_ts"] = start_ts
+                    call_session["path"] = path
+                    call_health_holder["recovery"] = call_health.RecoveryPolicy()
+                    call_health_holder["channels"] = call_health.ChannelHealthMonitor()
+                    call_state["value"] = "recording"
+                    ct.active = True
+                    menu_dirty["value"] = True
+                    play_sound(SOUND_START)
+                    if kind == "manual" and reason in ("tap_denied", "tap_unsupported"):
+                        notify("Voice Type", "Авто-захват недоступен — пишу через выбранный Call Device")
+                    elif kind == "mic":
+                        notify("Voice Type", "Пишу только микрофон (авто-захват недоступен, Call Device не выбран)")
+                    dt = time.time() - t0
+                    if dt > 0.5:
+                        log(f"[call] start took {dt:.2f}s (stale CoreAudio?)")
+                except Exception as e:
+                    log(f"[!] call start failed ({time.time() - t0:.2f}s): {e}")
+                    notify("Voice Type", f"Не удалось начать запись звонка: {e}")
+                    play_sound(SOUND_ERROR)
+                    src = call_recorder_holder["obj"]
+                    if src is not None:
+                        try:
+                            src.stop()
+                        except Exception:
+                            pass
+                    call_recorder_holder["obj"] = None
                     call_session["active"] = False
+                    call_state["value"] = "idle"
                     ct.active = False
-                elif not _call_device_exists(device):
-                    notify(
-                        "Voice Type",
-                        f"Устройство «{device}» не найдено — проверьте Call Device в меню",
-                    )
-                    call_session["active"] = False
-                    ct.active = False
-                else:
-                    try:
-                        start_ts = time.time()
-                        path = calls.start_transcript(start_ts)
-                        new_recorder = Recorder(device=device, all_channels=True)
-                        new_recorder.start()
-                        call_recorder_holder["obj"] = new_recorder
-                        call_session["id"] += 1
-                        call_session["active"] = True
-                        call_session["start_ts"] = start_ts
-                        call_session["path"] = path
-                        call_session["fail_count"] = 0
-                        call_state["value"] = "recording"
-                        ct.active = True
-                        menu_dirty["value"] = True
-                        play_sound(SOUND_START)
-                        dt = time.time() - t0
-                        if dt > 0.5:
-                            log(f"[call] start took {dt:.2f}s (stale CoreAudio?)")
-                    except Exception as e:
-                        log(f"[!] call recorder.start failed ({time.time() - t0:.2f}s): {e}")
-                        notify("Voice Type", f"Не удалось начать запись звонка: {e}")
-                        play_sound(SOUND_ERROR)
-                        call_session["active"] = False
-                        call_state["value"] = "idle"
-                        ct.active = False
             elif cmd == "call_stop":
                 if not call_session["active"]:
                     continue  # уже остановлен — игнорируем дублирующую команду
@@ -1877,18 +2030,37 @@ def run_app(args):
                 ct.active = False
                 menu_dirty["value"] = True
                 t0 = time.time()
-                rest = call_recorder.stop() if call_recorder is not None else None
+                # у авто-захвата две дорожки: забираем «хвосты» каждой отдельно
+                # (с метками времени), чтобы они встали в хронологию транскрипта
+                tails = []
+                if call_recorder is not None:
+                    if hasattr(call_recorder, "stop_labeled"):
+                        tails = call_recorder.stop_labeled()
+                    else:
+                        rest = call_recorder.stop()
+                        if rest is not None and len(rest):
+                            tails = [("mic", 0.0, rest)]
                 dt = time.time() - t0
                 if dt > 1.0:
                     log(f"[!] call recorder.stop took {dt:.2f}s (stale CoreAudio?)")
+                # все хвосты, кроме последнего, идут как промежуточные куски;
+                # последнее задание всегда final — оно и финализирует транскрипт
+                for side, ts, audio in tails[:-1]:
+                    jobs.put({
+                        "audio": audio, "sid": sid, "mode": "call", "final": False,
+                        "path": path, "ts": ts, "side": side,
+                    })
+                last = tails[-1] if tails else (None, 0.0, None)
                 jobs.put(
                     {
-                        "audio": rest,
+                        "audio": last[2],
                         "sid": sid,
                         "mode": "call",
                         "final": True,
                         "path": path,
                         "duration_sec": duration_sec,
+                        "ts": last[1],
+                        "side": last[0] or "mic",
                     }
                 )
 
@@ -1919,34 +2091,114 @@ def run_app(args):
                     ctrl.put("call_stop")
                     continue
                 call_recorder = call_recorder_holder["obj"]
+                recovery = call_health_holder["recovery"]
+                channels = call_health_holder["channels"]
+                now_mono = time.monotonic()
+
+                # снять готовые куски; исключение — сигнал сбоя потока.
+                # У авто-захвата дорожки раздельные: каждая режется и
+                # распознаётся сама по себе (правильный язык на каждой стороне)
+                # и несёт метку времени для хронологии.
+                failed = False
+                ready = []  # [(side, ts, audio)]
                 try:
-                    chunk = (
-                        call_recorder.take_chunk(
+                    if call_recorder is None:
+                        pass
+                    elif hasattr(call_recorder, "take_labeled_chunks"):
+                        ready = call_recorder.take_labeled_chunks(
                             min_sec=streaming.CHUNK_SEC,
                             target_sec=streaming.CHUNK_SEC,
                             hard_max_sec=streaming.CHUNK_HARD_MAX_SEC,
                         )
-                        if call_recorder is not None
-                        else None
-                    )
-                    call_session["fail_count"] = 0
+                    else:
+                        c = call_recorder.take_chunk(
+                            min_sec=streaming.CHUNK_SEC,
+                            target_sec=streaming.CHUNK_SEC,
+                            hard_max_sec=streaming.CHUNK_HARD_MAX_SEC,
+                        )
+                        if c is not None:
+                            elapsed = time.time() - call_session["start_ts"]
+                            ready = [("mic", max(0.0, elapsed - len(c) / 16000.0), c)]
                 except Exception as e:
-                    chunk = None
-                    call_session["fail_count"] += 1
-                    log(f"[!] call take_chunk: {e} (fail #{call_session['fail_count']})")
-                    if call_session["fail_count"] >= 3:
-                        log("[call] device seems gone — auto-stopping")
-                        notify("Voice Type", "Устройство звонка пропало — запись остановлена")
+                    failed = True
+                    log(f"[!] call take_chunk: {e}")
+
+                # второй сигнал сбоя: кадры перестали приходить (устройство
+                # пропало/сменилось на лету — наушники, отвал агрегата)
+                stalled = (
+                    call_recorder is not None
+                    and call_recorder.seconds_since_last_frame(now_mono) > CALL_STALL_SEC
+                )
+
+                if failed or stalled:
+                    action = (
+                        recovery.record_failure(now_mono)
+                        if recovery is not None
+                        else call_health.GIVE_UP
+                    )
+                    if action == call_health.RECOVER:
+                        gap = max(
+                            1,
+                            int(round(call_recorder.seconds_since_last_frame(now_mono)))
+                            if stalled and call_recorder is not None
+                            else 1,
+                        )
+                        log(f"[call] аудиопоток встал/сбоил — переоткрываю (gap≈{gap}s)")
+                        if call_recorder is not None and call_recorder.restart_stream():
+                            # метка провала — через воркер в call_lines,
+                            # чтобы пережить finalize (не пишем в файл напрямую)
+                            jobs.put(
+                                {
+                                    "marker": CALL_GAP_MARKER_TMPL.format(n=gap),
+                                    "sid": f"call-{call_session['id']}",
+                                    "mode": "call",
+                                    "path": call_session["path"],
+                                    "ts": max(0.0, time.time() - call_session["start_ts"]),
+                                }
+                            )
+                        # если restart не удался — на следующих тиках снова
+                        # failure/stall, и политика добьёт бюджет до GIVE_UP
+                    elif action == call_health.GIVE_UP:
+                        log("[call] не удалось восстановить аудио — авто-стоп")
+                        notify(
+                            "Voice Type",
+                            "Не удалось восстановить аудио звонка — запись остановлена",
+                        )
                         ctrl.put("call_stop")
+                    # WAIT либо только что сделали RECOVER — чанк в этот тик не отдаём
+                    continue
+
+                # поток здоров: обнулить бюджет попыток и проверить, не пропал ли
+                # один из источников (твой микрофон жив, звук собеседника исчез)
+                if recovery is not None:
+                    recovery.reset()
+                # per-channel «умер источник» — только для Recorder (у него есть
+                # channel_levels); у авто-захвата дорожки и так раздельные
+                if (
+                    channels is not None
+                    and call_recorder is not None
+                    and hasattr(call_recorder, "channel_levels")
+                ):
+                    dead = channels.update(call_recorder.channel_levels, now_mono)
+                    if dead:
+                        notify(
+                            "Voice Type",
+                            "Похоже, один из источников звука звонка пропал "
+                            "(наушники?). Запись продолжается — проверьте маршрутизацию",
+                        )
+
+                for side, ts, audio in ready:
+                    if audio is None or streaming.is_silent(audio):
                         continue
-                if chunk is not None and not streaming.is_silent(chunk):
                     jobs.put(
                         {
-                            "audio": chunk,
+                            "audio": audio,
                             "sid": f"call-{call_session['id']}",
                             "mode": "call",
                             "final": False,
                             "path": call_session["path"],
+                            "ts": ts,
+                            "side": side,
                         }
                     )
 
@@ -2056,6 +2308,29 @@ def run_app(args):
         )
     except Exception as e:  # pragma: no cover - только на не-macOS / без pyobjc
         print(f"[!] Failed to enable accessory mode: {e}", file=sys.stderr)
+
+    # Гарантированный запрос доступа к микрофону в контексте приложения. Делаем
+    # ПОСЛЕ старта run loop (в фоновом потоке с задержкой) — иначе системный
+    # диалог не может отобразиться и запрос мгновенно отклоняется. Нужно, чтобы
+    # приложение снова оказалось в System Settings → Microphone и получило грант
+    # (PortAudio сам промпт не поднимает).
+    def _bootstrap_mic():
+        import time as _t
+
+        _t.sleep(2.5)
+        try:
+            import AVFoundation as _AVF  # type: ignore
+
+            st = _AVF.AVCaptureDevice.authorizationStatusForMediaType_("soun")
+            log(f"[mic] authorization status: {int(st)} (3=authorized)")
+            if int(st) != 3:
+                _AVF.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+                    "soun", lambda g: log(f"[mic] access {'granted' if g else 'denied'}")
+                )
+        except Exception as _e:
+            log(f"[mic] permission bootstrap failed: {_e}")
+
+    threading.Thread(target=_bootstrap_mic, daemon=True).start()
 
     VoiceTypeApp().run()
 

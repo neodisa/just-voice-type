@@ -60,6 +60,40 @@ def start_transcript(ts: float) -> str:
     return path
 
 
+def format_timestamp(sec: "Optional[float]") -> str:
+    """Смещение от начала звонка → MM:SS (или H:MM:SS для длинных звонков)."""
+    try:
+        s = int(sec or 0)
+    except (TypeError, ValueError):
+        s = 0
+    if s < 0:
+        s = 0
+    h, rem = divmod(s, 3600)
+    m, ss = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{ss:02d}"
+    return f"{m:02d}:{ss:02d}"
+
+
+def format_line(sec: "Optional[float]", text: str) -> str:
+    """Одна реплика транскрипта: «[MM:SS] текст» (пробелы схлопнуты)."""
+    clean = " ".join((text or "").split())
+    return f"[{format_timestamp(sec)}] {clean}"
+
+
+def assemble(entries: "list[tuple[float, str]]") -> str:
+    """Собрать транскрипт из реплик (ts, текст): отсортировать по времени
+    (стабильно — при равном ts порядок поступления сохраняется), выбросить
+    пустые, отформатировать построчно.
+
+    Реплики двух дорожек звонка (микрофон и системный звук) распознаются
+    отдельно и приходят вперемешку, поэтому хронологию восстанавливаем здесь.
+    """
+    items = [(ts, txt) for ts, txt in entries if txt and txt.strip()]
+    items.sort(key=lambda it: it[0])
+    return "\n".join(format_line(ts, txt) for ts, txt in items)
+
+
 def append_chunk(path: str, text: str) -> None:
     """Дописать один распознанный кусок в файл транскрипта — устойчивость
     к падению приложения посреди долгого звонка: на диске всегда лежит
