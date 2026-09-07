@@ -96,3 +96,52 @@ class TestTranscriberClassFor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _FakeMX:
+    """Заглушка mlx.core: запоминает вызовы управления кэшем буферов."""
+
+    def __init__(self, raises=False):
+        self.raises = raises
+        self.cache_limits = []
+        self.clears = 0
+
+    def set_cache_limit(self, n):
+        if self.raises:
+            raise RuntimeError("boom")
+        self.cache_limits.append(n)
+        return 0
+
+    def clear_cache(self):
+        if self.raises:
+            raise RuntimeError("boom")
+        self.clears += 1
+
+
+class TestMLXCache(unittest.TestCase):
+    def _install(self, mx):
+        old = dict(voice_type._mlx_holder)
+        self.addCleanup(voice_type._mlx_holder.update, old)
+        voice_type._mlx_holder.update({"probed": True, "mx": mx})
+
+    def test_limit_sets_cache_limit(self):
+        mx = _FakeMX()
+        self._install(mx)
+        voice_type.limit_mlx_cache()
+        self.assertEqual(mx.cache_limits, [voice_type.MLX_CACHE_LIMIT_BYTES])
+
+    def test_trim_clears_cache(self):
+        mx = _FakeMX()
+        self._install(mx)
+        voice_type.trim_mlx_cache()
+        self.assertEqual(mx.clears, 1)
+
+    def test_no_mlx_is_a_noop(self):
+        self._install(None)
+        voice_type.limit_mlx_cache()
+        voice_type.trim_mlx_cache()  # не должно бросать
+
+    def test_mlx_errors_are_swallowed(self):
+        self._install(_FakeMX(raises=True))
+        voice_type.limit_mlx_cache()
+        voice_type.trim_mlx_cache()  # best-effort, наверх не пробрасываем

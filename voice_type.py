@@ -694,6 +694,59 @@ def load_wav_16k(wav_path: str):
     return a.astype(_np.float32)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Память MLX
+# ──────────────────────────────────────────────────────────────────────────────
+# MLX не отдаёт освобождённые Metal-буферы системе, а держит их в кэше, лимит
+# которого по умолчанию — «recommended working set» устройства (на этой машине
+# ~23 ГБ). Кэш заводит отдельную запись под каждый новый размер буфера и никогда
+# не сжимается, поэтому за день диктовок footprint процесса уползает в десятки
+# гигабайт при ~1.2 ГБ реально живых весов. Замер на одном и том же пути
+# (24 чанка 3–30 с, parakeet-v3): без лимита — 5250 МБ и медиана 129 мс,
+# с лимитом + чисткой на простое — 1607 МБ и медиана 128 мс. То есть память
+# втрое меньше, а на скорость распознавания это не влияет.
+MLX_CACHE_LIMIT_BYTES = 256 * 1024 * 1024
+
+# probed=False — mlx.core ещё не пробовали импортировать; дальше mx или None.
+_mlx_holder: dict = {"probed": False, "mx": None}
+
+
+def _mlx():
+    """mlx.core или None, если MLX не установлен (faster-whisper-сборка).
+    Результат кэшируем — trim_mlx_cache зовут после каждой работы воркера."""
+    if not _mlx_holder["probed"]:
+        try:
+            import mlx.core as mx  # type: ignore
+        except ImportError:
+            mx = None
+        _mlx_holder["mx"] = mx
+        _mlx_holder["probed"] = True
+    return _mlx_holder["mx"]
+
+
+def limit_mlx_cache(limit_bytes: int = MLX_CACHE_LIMIT_BYTES) -> None:
+    """Ограничить кэш буферов MLX. Best-effort, наверх не бросает."""
+    mx = _mlx()
+    if mx is None:
+        return
+    try:
+        mx.set_cache_limit(limit_bytes)
+    except Exception as e:
+        print(f"[!] mlx set_cache_limit failed: {e}", file=sys.stderr)
+
+
+def trim_mlx_cache() -> None:
+    """Вернуть кэшированные Metal-буферы системе. Зовём на простое воркера —
+    между диктовками кэш не нужен, а footprint падает на гигабайты."""
+    mx = _mlx()
+    if mx is None:
+        return
+    try:
+        mx.clear_cache()
+    except Exception as e:
+        print(f"[!] mlx clear_cache failed: {e}", file=sys.stderr)
+
+
 class MLXTranscriber:
     def __init__(self, model: str, language: Optional[str]):
         try:
@@ -1168,6 +1221,9 @@ def run_app(args):
         )
 
     recorder = Recorder()
+
+    # до загрузки любых моделей: не даём MLX копить Metal-буферы гигабайтами
+    limit_mlx_cache()
 
     transcriber_holder: dict = {"obj": None, "loading": False}
 
@@ -2022,6 +2078,10 @@ def run_app(args):
                         call_state["value"] = "idle"
                     else:
                         state["value"] = "idle"
+                # работы больше нет — отдаём кэш Metal-буферов системе; на
+                # следующий чанк это не влияет по времени (см. limit_mlx_cache)
+                if jobs.empty():
+                    trim_mlx_cache()
 
     threading.Thread(target=worker, daemon=True).start()
 
