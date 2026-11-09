@@ -199,6 +199,7 @@ python3 voice_type.py --engine faster --model large-v3                # CPU fast
 | Model takes forever to load | First run only (~3 GB). Use `medium` for speed. |
 | Hallucinations like "Thanks for watching!" | Known Whisper artifact on silence. The most common ones are filtered out; for the rest, speak a bit longer. |
 | LaunchAgent restarts in a loop | `launchctl print gui/$(id -u)/com.justvoicetype.local` shows the exit code. Usually missing permissions or no `.venv`. |
+| "Микрофон завис в CoreAudio — перезапускаю" notification | macOS CoreAudio wedged while closing/opening the mic stream. The app relaunches itself (up to 3 times per 15 min); repeat the dictation once the 🎙 is back. Diagnostics: `[recovery]` thread stacks in `whisper_flow.err.log` and native stacks in `~/Library/Logs/WhisperFlow/hang-*.txt`. If it keeps happening, reboot or run `sudo killall coreaudiod`. |
 
 ## License
 

@@ -329,6 +329,18 @@ class CombinedCallCapture:
         # метку времени реплики (позиция в звонке), без дрейфа настенных часов
         self._consumed = {"system": 0, "mic": 0}
 
+    def stuck_teardown(self, older_than: float = 5.0):
+        """Для watchdog: залипшее закрытие стрима микрофона. Системную
+        дорожку пишет отдельный процесс-хелпер — у неё закрывать нечего."""
+        if self._mic is None:
+            return None
+        return self._mic.stuck_teardown(older_than)
+
+    def oldest_teardown_age(self, now=None):
+        if self._mic is None:
+            return None
+        return self._mic.oldest_teardown_age(now)
+
     def _sides(self):
         yield "system", self._system
         if self._mic is not None:

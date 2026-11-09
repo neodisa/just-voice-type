@@ -37,6 +37,7 @@ import config
 import gestures
 import history
 import languages
+import mic_recovery
 import polish
 import streaming
 import system_audio
@@ -392,6 +393,17 @@ class Recorder:
                     entry["reported"] = True
                     return entry["phase"], age
         return None
+
+    def oldest_teardown_age(self, now: "Optional[float]" = None) -> "Optional[float]":
+        """Сколько висит самое старое незакрытое abort/close (None — ничего
+        не висит). В отличие от stuck_teardown не «съедает» разовый отчёт —
+        это вход для решения о самоперезапуске (mic_recovery)."""
+        if now is None:
+            now = time.time()
+        with self._teardown_lock:
+            if not self._teardowns:
+                return None
+            return max(now - e["t0"] for e in self._teardowns.values())
 
     def _reinit_portaudio(self):
         """Перезапуск PortAudio внутри процесса.
@@ -1211,6 +1223,12 @@ def run_app(args):
     rumps = _require("rumps")
     keyboard = _require("pynput.keyboard", "pynput").keyboard  # type: ignore
 
+    # err.log однажды разросся до 145 МБ из-за ошибки в watchdog — держим
+    # логи в разумных пределах (последние 2 МБ, если файл больше 20 МБ)
+    mic_recovery.trim_app_logs()
+    if os.environ.get(mic_recovery.ENV_KEY):
+        log(f"[recovery] relaunch history: {os.environ[mic_recovery.ENV_KEY]}")
+
     # Запрашиваем доступ к Accessibility сразу — иначе хоткей молча не работает.
     if not ensure_accessibility(prompt=True):
         print(
@@ -1286,7 +1304,18 @@ def run_app(args):
     # watchdog против «вечной записи»: vk хоткея, можно ли верить Quartz-опросу
     # (калибруется при каждом реальном нажатии), счётчик тиков «не нажата»,
     # и когда запрошен stop (для детекта зависшего PortAudio)
-    watchdog = {"vk": None, "trusted": False, "misses": 0, "stop_at": None}
+    # start_at — когда control_loop начал открывать микрофон (None — не
+    # открывает): зависшее открытие = мёртвый CoreAudio, см. mic_recovery
+    watchdog = {
+        "vk": None, "trusted": False, "misses": 0, "stop_at": None,
+        "start_at": None,
+    }
+    # воркер распознаёт/доставляет текст — самоперезапуск его не прерывает
+    worker_busy = {"value": False}
+    # бюджет самоперезапусков исчерпан — больше не пытаемся, только сообщаем
+    recovery = {"gave_up": False}
+    # ошибки watchdog логируем по одному разу — иначе 3 строки в секунду
+    watchdog_errors: set = set()
 
     # ── настройки из конфига (язык/избранное/хоткей переживают перезапуск) ──
     cfg = config.load()
@@ -1806,7 +1835,15 @@ def run_app(args):
         # ── статус-иконка и действия ────────────────────────────────────────
         def _on_tick(self, _):
             now = time.time()
-            self._watchdog_tick(now)
+            # сбой watchdog не должен ломать иконку и меню: раньше исключение
+            # здесь обрывало весь тик — иконка замирала до перезапуска
+            try:
+                self._watchdog_tick(now)
+            except Exception as e:
+                key = f"{type(e).__name__}: {e}"
+                if key not in watchdog_errors:
+                    watchdog_errors.add(key)
+                    log(f"[!] watchdog: {key}", err=True)
             # перестройка меню (новая запись в истории) — только здесь,
             # в главном потоке AppKit; воркер лишь поднимает флаг
             if menu_dirty["value"]:
@@ -1871,9 +1908,10 @@ def run_app(args):
                 play_sound(SOUND_ERROR)
                 state["value"] = "idle"
             # 3) залипшее закрытие стрима в фоне
-            for rec in (recorder, call_recorder_holder["obj"]):
-                if rec is None:
-                    continue
+            recs = [
+                r for r in (recorder, call_recorder_holder["obj"]) if r is not None
+            ]
+            for rec in recs:
                 stuck = rec.stuck_teardown(5.0)
                 if stuck is not None:
                     phase, age = stuck
@@ -1883,6 +1921,45 @@ def run_app(args):
                         "fail to open until the audio subsystem recovers",
                         err=True,
                     )
+            # 4) самоперезапуск: зависшее открытие микрофона или давно
+            #    залипшее закрытие — изнутри процесса CoreAudio уже не
+            #    оживить, а свежий процесс получает чистый аудио-контекст
+            if recovery["gave_up"]:
+                return
+            ages = [rec.oldest_teardown_age(now) for rec in recs]
+            ages = [a for a in ages if a is not None]
+            idle = (
+                not session["active"]
+                and not call_session["active"]
+                and call_state["value"] == "idle"
+                and state["value"] not in ("recording", "transcribing")
+                and not worker_busy["value"]
+                and jobs.empty()
+            )
+            reason = mic_recovery.relaunch_reason(
+                now,
+                start_since=watchdog["start_at"],
+                teardown_age=max(ages) if ages else None,
+                idle=idle,
+            )
+            # недоставленный текст важнее: ждём, пока воркер закончит
+            if reason is None or worker_busy["value"]:
+                return
+            log(f"[recovery] {reason} — CoreAudio wedged, relaunching Voice Type", err=True)
+            play_sound(SOUND_ERROR)
+            notify("Voice Type", "Микрофон завис в CoreAudio — перезапускаю Voice Type")
+            if not mic_recovery.relaunch(reason):
+                recovery["gave_up"] = True
+                log(
+                    "[recovery] relaunch budget exhausted — CoreAudio stays "
+                    "wedged across restarts",
+                    err=True,
+                )
+                notify(
+                    "Voice Type",
+                    "Аудиосистема macOS не отвечает даже после перезапусков. "
+                    "Перезагрузите Mac (или: sudo killall coreaudiod)",
+                )
 
         def toggle_enabled(self, _):
             enabled["value"] = not enabled["value"]
@@ -1937,6 +2014,7 @@ def run_app(args):
             sid = job.get("sid")
             final = job.get("final", True)
             mode = job.get("mode", "dictation")
+            worker_busy["value"] = True
             try:
                 if final:
                     if mode == "call":
@@ -2073,6 +2151,7 @@ def run_app(args):
                 if mode != "call":
                     session_parts.pop(sid, None)
             finally:
+                worker_busy["value"] = False
                 if final:
                     if mode == "call":
                         call_state["value"] = "idle"
@@ -2150,6 +2229,21 @@ def run_app(args):
             pass
         return False
 
+    # звонок с авто-захватом ещё и спавнит Swift-хелпер и ждёт его заголовок
+    # (а при сброшенном разрешении — системный диалог): даём ему запас
+    CALL_OPEN_GRACE_SEC = 6.0
+
+    def _open_mic(fn, grace: float = 0.0):
+        """Вызвать открытие микрофона под наблюдением watchdog: если оно
+        не вернётся за mic_recovery.START_HANG_SEC (+ grace), CoreAudio
+        заклинило и приложение перезапустится само (control_loop к тому
+        моменту стоит)."""
+        watchdog["start_at"] = time.time() + grace
+        try:
+            return fn()
+        finally:
+            watchdog["start_at"] = None
+
     def control_loop():
         """Все операции с PortAudio — в одном фоновом потоке.
 
@@ -2171,7 +2265,7 @@ def run_app(args):
             if cmd == "start":
                 t0 = time.time()
                 try:
-                    recorder.start()
+                    _open_mic(recorder.start)
                     session["id"] += 1
                     session["active"] = True
                     session["start_ts"] = time.time()
@@ -2231,7 +2325,7 @@ def run_app(args):
                         source = Recorder(device=device, all_channels=True)
                     else:  # mic
                         source = Recorder(device=None, all_channels=False)
-                    source.start()
+                    _open_mic(source.start, grace=CALL_OPEN_GRACE_SEC)
                     call_recorder_holder["obj"] = source
                     call_session["id"] += 1
                     call_session["active"] = True
@@ -2390,7 +2484,9 @@ def run_app(args):
                             else 1,
                         )
                         log(f"[call] аудиопоток встал/сбоил — переоткрываю (gap≈{gap}s)")
-                        if call_recorder is not None and call_recorder.restart_stream():
+                        if call_recorder is not None and _open_mic(
+                            call_recorder.restart_stream, grace=CALL_OPEN_GRACE_SEC
+                        ):
                             # метка провала — через воркер в call_lines,
                             # чтобы пережить finalize (не пишем в файл напрямую)
                             jobs.put(
