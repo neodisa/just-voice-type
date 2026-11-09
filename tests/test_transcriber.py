@@ -145,3 +145,29 @@ class TestMLXCache(unittest.TestCase):
         self._install(_FakeMX(raises=True))
         voice_type.limit_mlx_cache()
         voice_type.trim_mlx_cache()  # best-effort, наверх не пробрасываем
+
+
+class TestParakeetWordTimestamps(unittest.TestCase):
+    """Для печати по ходу речи нужны слова со временем — их даёт тот же
+    полный проход модели, что и обычная диктовка."""
+
+    def test_transcribe_words_groups_tokens(self):
+        import types
+
+        tr = voice_type.ParakeetTranscriber.__new__(voice_type.ParakeetTranscriber)
+        tok = lambda text, s, e: types.SimpleNamespace(text=text, start=s, end=e)
+        result = types.SimpleNamespace(
+            tokens=[tok(" При", 0.0, 0.2), tok("вет", 0.2, 0.4), tok(" мир", 0.5, 0.8)]
+        )
+        tr._model = types.SimpleNamespace(
+            preprocessor_config=None, generate=lambda mel: [result]
+        )
+        import unittest.mock as um
+
+        with um.patch("parakeet_mlx.audio.get_logmel", lambda a, cfg: a):
+            words = tr.transcribe_words(__import__("numpy").zeros(1600, dtype="float32"))
+        self.assertEqual([w.text for w in words], ["Привет", "мир"])
+        self.assertAlmostEqual(words[1].end, 0.8)
+
+    def test_whisper_transcribers_do_not_claim_word_timestamps(self):
+        self.assertFalse(hasattr(voice_type.MLXTranscriber, "transcribe_words"))

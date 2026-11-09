@@ -217,3 +217,65 @@ class TestCallSettings(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUpdatePreservesFileOwnedKeys(unittest.TestCase):
+    """Меню сохраняет только свои настройки. Раньше persist() писал конфиг
+    без "replacements" — и любая смена хоткея/языка/модели стирала словарь."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._old_xdg = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = self._tmp.name
+
+    def tearDown(self):
+        if self._old_xdg is None:
+            os.environ.pop("XDG_CONFIG_HOME", None)
+        else:
+            os.environ["XDG_CONFIG_HOME"] = self._old_xdg
+        self._tmp.cleanup()
+
+    def test_update_keeps_replacements_and_other_keys(self):
+        config.save({
+            "hotkey": "f19",
+            "replacements": {"фигма": "Figma"},
+            "vocabulary": ["Figma"],
+            "auto_system_audio": False,
+        })
+        config.update(hotkey="right_option", model="m")
+        cfg = config.load()
+        self.assertEqual(cfg["hotkey"], "right_option")
+        self.assertEqual(cfg["model"], "m")
+        self.assertEqual(cfg["replacements"], {"фигма": "Figma"})
+        self.assertEqual(cfg["vocabulary"], ["Figma"])
+        self.assertFalse(cfg["auto_system_audio"])
+
+    def test_update_returns_saved_config(self):
+        cfg = config.update(smart_mode="clean")
+        self.assertEqual(cfg["smart_mode"], "clean")
+        self.assertEqual(config.load()["smart_mode"], "clean")
+
+
+class TestLiveTyping(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._old_xdg = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = self._tmp.name
+
+    def tearDown(self):
+        if self._old_xdg is None:
+            os.environ.pop("XDG_CONFIG_HOME", None)
+        else:
+            os.environ["XDG_CONFIG_HOME"] = self._old_xdg
+        self._tmp.cleanup()
+
+    def test_live_typing_on_by_default(self):
+        self.assertTrue(config.load()["live_typing"])
+
+    def test_live_typing_roundtrip(self):
+        config.save({"live_typing": False})
+        self.assertFalse(config.load()["live_typing"])
+
+    def test_junk_falls_back_to_default(self):
+        config.save({"live_typing": "yes"})
+        self.assertTrue(config.load()["live_typing"])

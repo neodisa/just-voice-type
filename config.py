@@ -43,6 +43,9 @@ DEFAULTS = {
     # (macOS 14.4+, Swift-хелпер). True = пытаться автоматически; иначе ручной
     # Call Device. См. system_audio.choose_source.
     "auto_system_audio": True,
+    # Печать по ходу речи: слова появляются в поле, пока вы говорите (только
+    # Parakeet и режим Raw). False — текст вставляется целиком в конце.
+    "live_typing": True,
 }
 
 SMART_MODES = ("raw", "clean", "prompt")
@@ -62,6 +65,7 @@ def _defaults_copy() -> "dict[str, Any]":
         "call_hotkey": DEFAULTS["call_hotkey"],
         "call_device": DEFAULTS["call_device"],
         "auto_system_audio": DEFAULTS["auto_system_audio"],
+        "live_typing": DEFAULTS["live_typing"],
     }
 
 
@@ -143,6 +147,9 @@ def _validate(raw: Any) -> "dict[str, Any]":
     else:
         cfg["auto_system_audio"] = DEFAULTS["auto_system_audio"]
 
+    live = raw.get("live_typing")
+    cfg["live_typing"] = live if isinstance(live, bool) else DEFAULTS["live_typing"]
+
     # звонок и диктовка не могут висеть на одной и той же клавише
     if cfg["call_hotkey"] == cfg["hotkey"]:
         cfg["call_hotkey"] = (
@@ -163,6 +170,16 @@ def load() -> "dict[str, Any]":
         print(f"[!] config load failed ({e}); using defaults", file=sys.stderr)
         return _defaults_copy()
     return _validate(raw)
+
+
+def update(**changes: Any) -> "dict[str, Any]":
+    """Перечитать конфиг с диска, поменять только переданные ключи и
+    сохранить. Всё остальное (словарь замен, vocabulary, правки руками в
+    файле) остаётся как было. Возвращает сохранённый конфиг."""
+    cfg = load()
+    cfg.update(changes)
+    save(cfg)
+    return _validate(cfg)
 
 
 def save(cfg: "dict[str, Any]") -> None:

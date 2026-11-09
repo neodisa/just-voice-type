@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import json
 import os
 import queue
 import re
@@ -37,14 +38,16 @@ import config
 import gestures
 import history
 import languages
+import live_typing
 import mic_recovery
 import polish
 import streaming
 import system_audio
+import terms
 
 # единственный источник правды о версии; бампается при каждом релизе
 # (тег vX.Y.Z в git должен совпадать)
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 RELEASES_URL = "https://github.com/neodisa/just-voice-type/releases"
 
 SAMPLE_RATE = 16_000
@@ -904,6 +907,16 @@ class ParakeetTranscriber:
         self.last_language = language if language is not None else self.language
         return text.strip()
 
+    def transcribe_words(self, audio):
+        """Тот же полный проход, но слова со временем начала/конца — для
+        печати по ходу речи (live_typing.LiveSession)."""
+        import mlx.core as mx  # type: ignore
+        from parakeet_mlx.audio import get_logmel  # type: ignore
+
+        mel = get_logmel(mx.array(audio), self._model.preprocessor_config)
+        results = self._model.generate(mel)
+        return live_typing.words_from_tokens(results[0].tokens if results else [], 0.0)
+
     def warm_up(self) -> None:
         """Run 0.5s of silence through the model to load weights + compile
         Metal kernels off the first real dictation. Best-effort, never raises."""
@@ -951,6 +964,75 @@ _PASTE_CODE = (
     "Quartz.CGEventSetFlags(u, Quartz.kCGEventFlagMaskCommand)\n"
     "Quartz.CGEventPost(Quartz.kCGHIDEventTap, u)\n"
 )
+
+
+# Печатальщик для live typing: символы уходят как нажатия клавиш (unicode-
+# строка в CGEvent), по символу на событие — так их принимают и Electron, и
+# терминал. Источник событий «приватный», флаги обнулены: иначе зажатый
+# хоткей (Right Option) примешивался бы к печатаемому — в терминале с
+# «Option as Meta» это escape-последовательности вместо букв.
+_TYPE_CODE = (
+    "import json, sys, time\n"
+    "import Quartz\n"
+    "src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)\n"
+    "def post(text):\n"
+    "    for ch in text:\n"
+    "        n = len(ch.encode('utf-16-le')) // 2\n"
+    "        for down in (True, False):\n"
+    "            e = Quartz.CGEventCreateKeyboardEvent(src, 0, down)\n"
+    "            Quartz.CGEventKeyboardSetUnicodeString(e, n, ch)\n"
+    "            Quartz.CGEventSetFlags(e, 0)\n"
+    "            Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)\n"
+    "        time.sleep(0.002)\n"
+    "for line in sys.stdin:\n"
+    "    try:\n"
+    "        post(json.loads(line))\n"
+    "    except Exception as ex:\n"
+    "        print(f'[typer] {ex}', file=sys.stderr, flush=True)\n"
+)
+
+
+class KeyTyper:
+    """Долгоживущий подпроцесс, печатающий текст в активное поле.
+
+    Отдельный процесс — по той же причине, что и paste_via_cmd_v (синтез
+    событий рядом со слушателем клавиш и MLX роняет приложение), а
+    долгоживущий — потому что при печати по ходу речи текст приходит
+    кусками каждые полсекунды, и запускать python на каждый кусок дорого.
+    Тот же подписанный python → та же TCC-личность (Accessibility).
+    """
+
+    def __init__(self, spawn=None):
+        self._spawn = spawn or self._default_spawn
+        self._proc = None
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _default_spawn():
+        return subprocess.Popen(
+            [sys.executable, "-c", _TYPE_CODE],
+            stdin=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+
+    def type_text(self, text: str) -> bool:
+        """Отправить текст на печать. False — печатальщик не запускается."""
+        if not text:
+            return True
+        # перевод строки в чате = «отправить»: никогда не печатаем его
+        line = json.dumps(text.replace("\n", " "), ensure_ascii=False) + "\n"
+        with self._lock:
+            for _ in range(2):  # один перезапуск, если процесс умер
+                try:
+                    if self._proc is None or self._proc.poll() is not None:
+                        self._proc = self._spawn()
+                    self._proc.stdin.write(line)
+                    self._proc.stdin.flush()
+                    return True
+                except (OSError, ValueError):
+                    self._proc = None
+            return False
 
 
 def paste_via_cmd_v() -> None:
@@ -1195,19 +1277,9 @@ def apply_replacements(text: str, rules: "dict") -> str:
     """Replace user-defined terms in `text`: whole-word, case-insensitive,
     single pass. `rules` maps heard-form -> wanted-form. Output is the literal
     wanted value; a rule's output is never re-scanned by another rule.
+    Declined forms of a dictionary-form key are matched too (see terms.py).
     """
-    if not text or not rules:
-        return text
-    # Longest keys first so multi-word phrases win over their prefixes.
-    keys = [k for k in sorted(rules.keys(), key=len, reverse=True) if k]
-    if not keys:
-        return text
-    lookup = {k.lower(): v for k, v in rules.items() if k}
-    pattern = re.compile(
-        r"\b(" + "|".join(re.escape(k) for k in keys) + r")\b",
-        re.IGNORECASE,
-    )
-    return pattern.sub(lambda m: lookup[m.group(0).lower()], text)
+    return terms.apply(text, rules)
 
 
 def polish_text_safe(polisher, text, mode, language, vocabulary):
@@ -1344,6 +1416,9 @@ def run_app(args):
     current_model["value"] = args.model or cfg["model"] or default_model
     smart_mode = {"value": cfg["smart_mode"]}
     insert_mode = {"value": cfg["insert_mode"]}
+    # печать по ходу речи (см. live_typing) и её подпроцесс-печатальщик
+    live_typing_on = {"value": cfg["live_typing"]}
+    typer = KeyTyper()
     # PID приложения, активного на старте диктовки (для «прилипания» AX-вставки).
     target_app = {"pid": None}
     vocabulary = {"value": list(cfg["vocabulary"])}
@@ -1356,22 +1431,18 @@ def run_app(args):
             threading.Thread(target=polisher.warm_up, daemon=True).start()
 
     def persist():
-        # vocabulary is owned by the user via the config file (Edit vocabulary…),
-        # not by the menu. Re-read it from disk so menu-driven saves never clobber
-        # manual edits the user made in the file.
-        on_disk = config.load()
-        config.save(
-            {
-                "favorite_languages": favorites["value"],
-                "active_language": current_lang["value"],
-                "hotkey": current_hotkey["value"],
-                "smart_mode": smart_mode["value"],
-                "vocabulary": on_disk["vocabulary"],
-                "model": current_model["value"],
-                "insert_mode": insert_mode["value"],
-                "call_hotkey": current_call_hotkey["value"],
-                "call_device": current_call_device["value"],
-            }
+        # Меню сохраняет только свои настройки поверх файла: словарь замен,
+        # vocabulary и всё, что правили руками, остаются как есть. (Раньше
+        # сюда писался неполный конфиг — и смена хоткея стирала словарь.)
+        config.update(
+            favorite_languages=favorites["value"],
+            active_language=current_lang["value"],
+            hotkey=current_hotkey["value"],
+            smart_mode=smart_mode["value"],
+            model=current_model["value"],
+            insert_mode=insert_mode["value"],
+            call_hotkey=current_call_hotkey["value"],
+            call_device=current_call_device["value"],
         )
 
     # модели для подменю «Model» (только для движка mlx).
@@ -1435,6 +1506,7 @@ def run_app(args):
                         callback=self.toggle_enabled,
                     ),
                     rumps.MenuItem("Copy last text", callback=self.copy_last),
+                    rumps.MenuItem("Добавить термин…", callback=self.add_term),
                     self._history_menu(),
                     None,
                     rumps.MenuItem(
@@ -1525,6 +1597,12 @@ def run_app(args):
             )
             ax_item.state = 1 if insert_mode["value"] == "ax" else 0
             items.append(ax_item)
+            live_item = rumps.MenuItem(
+                "Печатать по ходу речи (Parakeet, Raw)",
+                callback=self._toggle_live_typing,
+            )
+            live_item.state = 1 if live_typing_on["value"] else 0
+            items.append(live_item)
             return ("Smart", items)
 
         def _history_menu(self):
@@ -1654,6 +1732,19 @@ def run_app(args):
             self._build_menu()
             print(f"[i] Insert mode: {insert_mode['value']}")
 
+        def _toggle_live_typing(self, _):
+            live_typing_on["value"] = not live_typing_on["value"]
+            config.update(live_typing=live_typing_on["value"])
+            self._build_menu()
+            on = live_typing_on["value"]
+            log(f"[i] Live typing: {on}")
+            notify(
+                "Voice Type",
+                "Печать по ходу речи включена (Parakeet + Raw)"
+                if on
+                else "Печать по ходу речи выключена — текст вставляется в конце",
+            )
+
         def edit_vocabulary(self, _):
             # словарь правится прямо в конфиг-файле; открываем его в редакторе
             persist()  # на случай первого запуска — гарантируем, что файл есть
@@ -1662,6 +1753,42 @@ def run_app(args):
                 "Voice Type",
                 "Edit the \"vocabulary\" list in config.json — applies on your next dictation",
             )
+
+        def add_term(self, _):
+            """Окно «как распознаётся = как писать» → правило в словарь
+            замен; работает со следующей диктовки, склонения ловятся сами."""
+            try:
+                from AppKit import NSApplication
+
+                # accessory-приложение не выходит на передний план само —
+                # без этого окно ввода открывается за другими окнами
+                NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+            except Exception:
+                pass
+            resp = rumps.Window(
+                message=(
+                    "Как слово распознаётся = как его писать.\n"
+                    "Примеры:  фигма = Figma    хавар = ховер\n"
+                    "Склонения (фигме, хавару) подхватятся сами."
+                ),
+                title="Добавить термин",
+                default_text="",
+                ok="Добавить",
+                cancel="Отмена",
+                dimensions=(320, 24),
+            ).run()
+            if not resp.clicked:
+                return
+            parsed = terms.parse_input(resp.text)
+            if parsed is None:
+                notify("Voice Type", "Не понял. Формат: как слышится = как писать")
+                return
+            heard, wanted = parsed
+            reps = dict(config.load()["replacements"])
+            reps[heard] = wanted
+            config.update(replacements=reps)
+            log(f"[terms] added: {heard} → {wanted}")
+            notify("Voice Type", f"Термин добавлен: {heard} → {wanted}")
 
         def edit_replacements(self, _):
             # словарь замен правится прямо в конфиг-файле; открываем его
@@ -1994,11 +2121,90 @@ def run_app(args):
             tr = transcriber_holder["obj"]
         return tr
 
+    # печать по ходу речи: sid → LiveSession (одна активная за раз)
+    live_sessions: dict = {}
+
+    def _live_typing_enabled():
+        """Печатать ли эту диктовку по ходу речи. Нужны: включённый пункт
+        меню, Raw (Clean/Prompt переписывают весь текст — по кускам нельзя),
+        автовставка и модель со временем слов (Parakeet), уже загруженная."""
+        tr = transcriber_holder["obj"]
+        return bool(
+            live_typing_on["value"]
+            and smart_mode["value"] == "raw"
+            and not args.no_paste
+            and tr is not None
+            and hasattr(tr, "transcribe_words")
+        )
+
+    def _handle_live_job(job):
+        sid = job.get("sid")
+        tr = _wait_transcriber()
+        if tr is None:
+            raise RuntimeError("model not loaded")
+        sess = live_sessions.get(sid)
+        if sess is None:
+            live_sessions.clear()  # брошенные (abort) сессии не копим
+            pid = target_app["pid"]
+
+            def emit(text):
+                # окно сменилось — дальше не печатаем: текст уйдёт в историю
+                front = frontmost_app_pid()
+                if pid is not None and front is not None and front != pid:
+                    return False
+                return typer.type_text(text)
+
+            sess = live_typing.LiveSession(
+                tr.transcribe_words,
+                emit,
+                rules=config.load()["replacements"],
+            )
+            live_sessions[sid] = sess
+        if not job.get("final"):
+            sess.feed(job.get("audio"))
+            return
+        state["value"] = "transcribing"
+        t0 = time.time()
+        full = sess.finish(
+            job.get("audio"), accept=lambda t: not is_hallucination(t)
+        )
+        live_sessions.pop(sid, None)
+        if not full:
+            print("[·] Empty.")
+            return
+        log(f"[✓] typed live (tail {time.time() - t0:.1f}s): {full}")
+        last_text["value"] = full
+        history_items["value"] = history.add(full)
+        menu_dirty["value"] = True
+        play_sound(SOUND_DONE)
+        done_until["ts"] = time.time() + 2.0
+        if sess.undelivered:
+            log(f"[i] live: window changed, not typed: {sess.undelivered}")
+            notify(
+                "Voice Type",
+                "Окно сменилось — остаток не напечатан, весь текст в «Copy last text»",
+            )
+
     def worker():
         while True:
             job = jobs.get()
             if job is None:
                 return
+            if job.get("live"):
+                worker_busy["value"] = True
+                try:
+                    _handle_live_job(job)
+                except Exception as e:
+                    play_sound(SOUND_ERROR)
+                    log(f"[!] live typing: {e}", err=True)
+                    live_sessions.pop(job.get("sid"), None)
+                finally:
+                    worker_busy["value"] = False
+                    if job.get("final"):
+                        state["value"] = "idle"
+                        if jobs.empty():
+                            trim_mlx_cache()
+                continue
             # marker-job: служебная метка в транскрипт звонка (например, о
             # пропуске записи при переоткрытии потока). Кладём её в call_lines с
             # меткой времени — тогда она встанет в хронологию и переживёт
@@ -2257,8 +2463,11 @@ def run_app(args):
         Recorder-инстансом на своём устройстве.
         """
         while True:
+            # при печати по ходу речи звук забираем чаще — слова быстрее
+            # доходят до поля (проход модели всё равно раз в STEP_SEC)
+            live_now = session["active"] and session.get("live")
             try:
-                cmd = ctrl.get(timeout=0.5)
+                cmd = ctrl.get(timeout=0.2 if live_now else 0.5)
             except queue.Empty:
                 cmd = None
 
@@ -2269,6 +2478,7 @@ def run_app(args):
                     session["id"] += 1
                     session["active"] = True
                     session["start_ts"] = time.time()
+                    session["live"] = _live_typing_enabled()
                     target_app["pid"] = frontmost_app_pid()
                     dt = time.time() - t0
                     if dt > 0.5:
@@ -2291,7 +2501,10 @@ def run_app(args):
                 if cmd == "stop":
                     # финальное задание всегда (даже если rest пуст) — worker
                     # склеит уже накопленные чанки и доставит текст
-                    jobs.put({"audio": rest, "sid": sid, "final": True})
+                    jobs.put({
+                        "audio": rest, "sid": sid, "final": True,
+                        "live": bool(session.get("live")),
+                    })
                 else:  # abort — выбрасываем сессию без доставки
                     session_parts.pop(sid, None)
                     state["value"] = "idle"
@@ -2410,19 +2623,33 @@ def run_app(args):
                     log("[rec] hands-free session hit 5-min cap — auto-stopping")
                     ctrl.put("stop")
                     continue
-                try:
-                    chunk = recorder.take_chunk(
-                        min_sec=streaming.CHUNK_SEC,
-                        target_sec=streaming.CHUNK_SEC,
-                        hard_max_sec=streaming.CHUNK_HARD_MAX_SEC,
-                    )
-                except Exception as e:
-                    chunk = None
-                    log(f"[!] take_chunk: {e}")
-                if chunk is not None and not streaming.is_silent(chunk):
-                    jobs.put(
-                        {"audio": chunk, "sid": session["id"], "final": False}
-                    )
+                if session.get("live"):
+                    # печать по ходу речи: весь новый звук сразу воркеру —
+                    # он сам решает, когда прогнать модель и что напечатать
+                    try:
+                        fresh = recorder.drain_16k()
+                    except Exception as e:
+                        fresh = None
+                        log(f"[!] live drain: {e}")
+                    if fresh is not None and len(fresh):
+                        jobs.put({
+                            "audio": fresh, "sid": session["id"],
+                            "final": False, "live": True,
+                        })
+                else:
+                    try:
+                        chunk = recorder.take_chunk(
+                            min_sec=streaming.CHUNK_SEC,
+                            target_sec=streaming.CHUNK_SEC,
+                            hard_max_sec=streaming.CHUNK_HARD_MAX_SEC,
+                        )
+                    except Exception as e:
+                        chunk = None
+                        log(f"[!] take_chunk: {e}")
+                    if chunk is not None and not streaming.is_silent(chunk):
+                        jobs.put(
+                            {"audio": chunk, "sid": session["id"], "final": False}
+                        )
 
             # пока идёт звонок — та же логика, отдельным Recorder-инстансом
             if call_session["active"]:
