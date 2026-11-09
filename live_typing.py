@@ -1,11 +1,17 @@
 """Печать по ходу речи (live typing) для Just Voice Type.
 
 Встроенный потоковый режим parakeet-mlx (локальное внимание) на русской речи
-выдаёт кашу, поэтому делаем по-другому: каждые ~0.5 с заново распознаём
+выдаёт кашу, поэтому делаем по-другому: каждые ~0.4 с заново распознаём
 «окно» последних секунд ПОЛНЫМ проходом модели (так же точно, как обычная
-диктовка) и печатаем только слова, которые совпали в двух проходах подряд
-(LocalAgreement-2). Слова у самого края звука не подтверждаем — их модель
-ещё может переслушать.
+диктовка) и сверяем с прошлым проходом (LocalAgreement-2).
+
+Печатаем ПРЕДЛОЖЕНИЯМИ. Напечатанное в чужом поле уже не исправить, а
+модель, дослушав фразу, нередко меняет знак или слово в ней («работает.» →
+«работает, и оно…»). Поэтому предложение уходит в поле, только когда его
+конец подтверждён: точка (?, !) на одном и том же слове в двух проходах и
+дальше либо следующее подтверждённое слово, либо пауза. Текст берём из
+самого свежего прохода. Очень длинную фразу без точки печатаем до последней
+подтверждённой запятой, чтобы не ждать слишком долго.
 
 Тут только логика без модели и клавиатуры: распознавание и «печать»
 передаются функциями, поэтому всё проверяется тестами.
@@ -22,7 +28,7 @@ import streaming
 import terms
 
 # сколько нового звука копим между проходами модели
-STEP_SEC = 0.5
+STEP_SEC = 0.4
 # слова, кончающиеся ближе этого к краю звука, ещё не подтверждаем
 HOLD_SEC = 0.3
 # окно распознавания длиннее этого — подрезаем слева по подтверждённому
@@ -31,6 +37,16 @@ WINDOW_MAX_SEC = 15.0
 TRIM_KEEP_SEC = 1.0
 # сколько слов хвоста сверяем, чтобы не напечатать слово второй раз
 DEDUPE_MAX = 4
+# пауза после точки, которой хватает, чтобы считать предложение законченным
+PAUSE_SEC = 0.8
+# фраза без точки дольше этого — печатаем до последней подтверждённой запятой
+LONG_SENTENCE_SEC = 8.0
+# …а если и запятой нет так долго — печатаем, оставив пару последних слов
+HARD_CUT_SEC = 16.0
+
+_TERMINAL = re.compile(r"[.!?…]['\"»)\]]*$")
+_CLAUSE = re.compile(r"[,;:—]['\"»)\]]*$")
+_ANY_PUNCT = re.compile(r"[^\w]$")
 
 
 @dataclass
@@ -91,18 +107,52 @@ class Agreement:
         return words
 
     def update(self, hyp: "list[Word]", audio_end: float) -> "list[Word]":
-        """Очередная гипотеза окна → слова, которые пора печатать."""
+        """Очередная гипотеза окна → законченные предложения, которые пора
+        печатать (пусто, если ни одно ещё не подтверждено)."""
         cand = self._fresh(hyp)
+        prev = self._prev
+        # подтверждённый префикс: те же слова, что в прошлом проходе, и не у
+        # самого края звука
         k = 0
         limit = audio_end - HOLD_SEC
         while (
-            k < min(len(cand), len(self._prev))
-            and norm(cand[k].text) == norm(self._prev[k].text)
+            k < min(len(cand), len(prev))
+            and norm(cand[k].text) == norm(prev[k].text)
             and cand[k].end < limit
         ):
             k += 1
-        self._prev = cand[k:]
-        return self._commit(cand[:k])
+        cut = self._cut(cand, prev, k, audio_end)
+        if cut is None:
+            self._prev = cand
+            return []
+        self._prev = cand[cut + 1:]
+        return self._commit(cand[: cut + 1])
+
+    @staticmethod
+    def _cut(cand, prev, k, audio_end) -> "Optional[int]":
+        """Индекс последнего слова, по которое можно печатать, или None."""
+
+        def both(pattern, i):
+            return pattern.search(cand[i].text) and pattern.search(prev[i].text)
+
+        cut = None
+        for i in range(k):
+            if not both(_TERMINAL, i):
+                continue
+            nxt = cand[i + 1].start if i + 1 < len(cand) else audio_end
+            if i + 1 < k or nxt - cand[i].end >= PAUSE_SEC:
+                cut = i
+        if cut is not None or k == 0:
+            return cut
+        span = cand[k - 1].end - cand[0].start
+        if span >= LONG_SENTENCE_SEC:
+            # i ≤ k-2: следующее слово тоже подтверждено — запятая устоялась
+            for i in range(k - 2, -1, -1):
+                if both(_CLAUSE, i):
+                    return i
+        if span >= HARD_CUT_SEC and k >= 3:
+            return k - 3
+        return None
 
     def finish(self, hyp: "list[Word]") -> "list[Word]":
         """Финальная гипотеза (клавишу отпустили) → всё, что ещё не напечатано."""
@@ -222,7 +272,11 @@ class LiveSession:
 
     def _output(self, words: "list[Word]", final: bool) -> None:
         self._held.extend(words)
-        n = len(self._held) if final else len(self._held) - self._hold_count()
+        # фразу-термин («клод код») может разорвать только аварийный рез
+        # длинной фразы без знаков — тогда придерживаем её начало
+        open_end = self._held and not _ANY_PUNCT.search(self._held[-1].text)
+        hold = self._hold_count() if (open_end and not final) else 0
+        n = len(self._held) - hold
         if n <= 0:
             return
         batch, self._held = self._held[:n], self._held[n:]
@@ -240,6 +294,11 @@ class LiveSession:
             self._deliver(text)
 
     def _deliver(self, text: str) -> None:
+        # после напечатанной точки — новое предложение с заглавной, даже если
+        # модель в более позднем проходе начала его со строчной
+        done = self._typed + self._undelivered
+        if done and _TERMINAL.search(done[-1]) and text[:1].islower():
+            text = text[:1].upper() + text[1:]
         if self._diverted:
             self._undelivered.append(text)
             return

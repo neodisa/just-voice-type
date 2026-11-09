@@ -1,4 +1,9 @@
-"""Печать по ходу речи: какие слова и когда уходят в поле."""
+"""Печать по ходу речи: какие слова и когда уходят в поле.
+
+Печатаем по предложениям: предложение уходит в поле, когда его конец
+(точка/вопрос/восклицание) подтверждён — так каждое предложение
+распознаётся со всем своим контекстом, и на стыках не бывает «. и» / «, Но».
+"""
 import types
 import unittest
 
@@ -32,50 +37,89 @@ def W(text, start, end):
     return Word(text, start, end)
 
 
-class TestAgreement(unittest.TestCase):
+# «Работает. И оно пишет» — конец предложения на первом слове
+SENT = [W("Работает.", 0.0, 0.5), W("И", 0.6, 0.7), W("оно", 0.8, 1.0), W("пишет", 1.1, 1.4)]
+
+
+def texts(words):
+    return [w.text for w in words]
+
+
+class TestAgreementCommitsWholeSentences(unittest.TestCase):
     def test_first_pass_commits_nothing(self):
-        a = Agreement()
-        self.assertEqual(a.update([W("раз", 0, 0.3), W("два", 0.4, 0.7)], audio_end=2.0), [])
+        self.assertEqual(Agreement().update(SENT, audio_end=3.0), [])
 
-    def test_commits_common_prefix_of_two_passes(self):
+    def test_agreed_words_mid_sentence_are_not_typed(self):
         a = Agreement()
-        a.update([W("раз", 0, 0.3), W("два", 0.4, 0.7)], audio_end=2.0)
-        got = a.update([W("раз", 0, 0.3), W("три", 0.4, 0.7)], audio_end=2.5)
-        self.assertEqual([w.text for w in got], ["раз"])
+        hyp = [W("Ну", 0.0, 0.2), W("да,", 0.3, 0.5), W("реально", 0.6, 1.0)]
+        a.update(hyp, audio_end=3.0)
+        self.assertEqual(a.update(hyp, audio_end=3.5), [])
 
-    def test_does_not_commit_words_at_the_audio_edge(self):
+    def test_sentence_confirmed_by_the_next_agreed_word(self):
         a = Agreement()
-        hyp = [W("раз", 0, 0.3), W("два", 0.4, 0.95)]
-        a.update(hyp, audio_end=1.0)
-        got = a.update(hyp, audio_end=1.0)
-        self.assertEqual([w.text for w in got], ["раз"], "«два» ещё может измениться")
+        a.update(SENT, audio_end=3.0)
+        self.assertEqual(texts(a.update(SENT, audio_end=3.5)), ["Работает."])
 
-    def test_jittered_timestamps_do_not_retype_a_word(self):
+    def test_period_that_turned_into_a_comma_is_not_a_boundary(self):
         a = Agreement()
-        a.update([W("там", 1.0, 1.4), W("кнопка", 1.5, 2.0)], audio_end=3.0)
-        a.update([W("там", 1.0, 1.4), W("кнопка", 1.5, 2.0)], audio_end=3.5)
-        # следующий проход сдвинул границы «кнопка» чуть позже конца коммита
-        got = a.update(
-            [W("кнопка", 1.55, 2.05), W("синяя", 2.1, 2.5)], audio_end=4.0
+        a.update(SENT, audio_end=3.0)
+        flipped = [W("работает,", 0.0, 0.5)] + [W("и", 0.6, 0.7)] + SENT[2:]
+        self.assertEqual(a.update(flipped, audio_end=3.5), [], "фраза продолжается")
+
+    def test_sentence_confirmed_by_a_pause(self):
+        a = Agreement()
+        hyp = [W("Готово.", 0.0, 0.5)]
+        a.update(hyp, audio_end=1.8)
+        self.assertEqual(texts(a.update(hyp, audio_end=2.0)), ["Готово."])
+
+    def test_unconfirmed_sentence_end_waits(self):
+        a = Agreement()
+        hyp = [W("Готово.", 0.0, 0.5)]
+        a.update(hyp, audio_end=0.9)
+        self.assertEqual(a.update(hyp, audio_end=1.0), [], "ни паузы, ни продолжения")
+
+    def test_freshest_text_of_the_sentence_is_typed(self):
+        a = Agreement()
+        old = [W("Посмотри", 0.0, 0.4), W("фильме.", 0.5, 0.9), W("Там", 1.0, 1.2)]
+        new = [W("Посмотри", 0.0, 0.4), W("фигме.", 0.5, 0.9), W("Там", 1.0, 1.2)]
+        a.update(old, audio_end=3.0)
+        # слово внутри ещё не напечатанного предложения поменялось — сверка
+        # «двух проходов» сбрасывается, печатаем только когда устоится
+        self.assertEqual(a.update(new, audio_end=3.5), [])
+        self.assertEqual(texts(a.update(new, audio_end=4.0)), ["Посмотри", "фигме."])
+
+    def test_long_sentence_without_period_is_cut_at_a_comma(self):
+        a = Agreement()
+        hyp = [W("раз", 0.0, 0.5), W("два,", 1.0, 1.5), W("три", 4.0, 4.5),
+               W("четыре,", 6.0, 6.5), W("пять", 8.5, 9.0), W("шесть", 9.5, 10.0)]
+        a.update(hyp, audio_end=11.0)
+        self.assertEqual(
+            texts(a.update(hyp, audio_end=11.5)), ["раз", "два,", "три", "четыре,"]
         )
-        self.assertEqual(got, [])
-        got = a.update(
-            [W("кнопка", 1.6, 2.1), W("синяя", 2.1, 2.5)], audio_end=4.5
-        )
-        self.assertEqual([w.text for w in got], ["синяя"])
 
-    def test_comparison_ignores_case_and_punctuation(self):
+    def test_next_sentence_after_a_commit(self):
         a = Agreement()
-        a.update([W("макет", 0, 0.5), W("там", 0.6, 0.8)], audio_end=3.0)
-        got = a.update([W("макет,", 0, 0.5), W("там", 0.6, 0.8)], audio_end=3.5)
-        self.assertEqual([w.text for w in got], ["макет,", "там"], "печатаем свежую версию")
+        a.update(SENT, audio_end=3.0)
+        a.update(SENT, audio_end=3.5)  # «Работает.» напечатано
+        nxt = SENT[1:] + [W("сразу.", 1.5, 1.9), W("Да", 2.0, 2.2)]
+        a.update(nxt, audio_end=4.0)
+        self.assertEqual(texts(a.update(nxt, audio_end=4.5)), ["И", "оно", "пишет", "сразу."])
+
+    def test_jittered_timestamps_do_not_retype_the_sentence_end(self):
+        a = Agreement()
+        a.update(SENT, audio_end=3.0)
+        a.update(SENT, audio_end=3.5)  # «Работает.» напечатано (конец 0.5)
+        # следующий проход услышал «Работает.» чуть позже конца коммита
+        shifted = [W("Работает.", 0.1, 0.6)] + SENT[1:] + [W("сразу.", 1.5, 1.9), W("Да", 2.0, 2.2)]
+        a.update(shifted, audio_end=4.0)
+        got = a.update(shifted, audio_end=4.5)
+        self.assertEqual(texts(got), ["И", "оно", "пишет", "сразу."])
 
     def test_finish_returns_everything_not_yet_committed(self):
         a = Agreement()
-        a.update([W("раз", 0, 0.3)], audio_end=2.0)
-        a.update([W("раз", 0, 0.3)], audio_end=2.5)
-        rest = a.finish([W("раз", 0, 0.3), W("два", 0.4, 0.7), W("три.", 0.8, 1.0)])
-        self.assertEqual([w.text for w in rest], ["два", "три."])
+        a.update(SENT, audio_end=3.0)
+        a.update(SENT, audio_end=3.5)
+        self.assertEqual(texts(a.finish(SENT)), ["И", "оно", "пишет"])
 
 
 class _ScriptedModel:
@@ -97,10 +141,10 @@ class _ScriptedModel:
 
 
 SCRIPT = [
-    ("Посмотри", 0.0, 0.5), ("в", 0.55, 0.6), ("фигме", 0.65, 1.1),
-    ("макет,", 1.15, 1.6), ("там", 1.8, 2.0), ("клод", 2.1, 2.4),
-    ("код", 2.45, 2.8), ("работает.", 2.9, 3.5),
+    ("Посмотри", 0.0, 0.5), ("в", 0.55, 0.6), ("фигме", 0.65, 1.1), ("макет.", 1.15, 1.6),
+    ("Там", 1.8, 2.0), ("клод", 2.1, 2.4), ("код", 2.45, 2.8), ("работает.", 2.9, 3.5),
 ]
+FULL = "Посмотри в Figma макет. Там Claude Code работает."
 RULES = {"фигма": "Figma", "клод код": "Claude Code"}
 
 
@@ -109,8 +153,8 @@ def speech(sec):
 
 
 class TestLiveSession(unittest.TestCase):
-    def _session(self, emit=None):
-        model = _ScriptedModel(SCRIPT)
+    def _session(self, emit=None, script=SCRIPT):
+        model = _ScriptedModel(script)
         out = []
 
         def default_emit(text):
@@ -121,22 +165,22 @@ class TestLiveSession(unittest.TestCase):
         model.session = s
         return s, model, out
 
-    def test_types_incrementally_and_ends_with_the_full_text(self):
+    def test_types_sentence_by_sentence(self):
         s, _, out = self._session()
-        for _ in range(8):  # 4 с речи кусками по 0.5 с
+        for _ in range(8):  # 4 с: первое предложение подтверждено, второе ещё нет
             s.feed(speech(0.5))
-        typed_before_finish = "".join(out)
+        self.assertEqual(out, ["Посмотри в Figma макет."])
         s.finish(np.empty(0, dtype=np.float32))
-        self.assertTrue(typed_before_finish, "ничего не напечатано, пока говорили")
-        self.assertEqual("".join(out), "Посмотри в Figma макет, там Claude Code работает.")
-        self.assertEqual(s.text, "Посмотри в Figma макет, там Claude Code работает.")
+        self.assertEqual("".join(out), FULL)
+        self.assertEqual(s.text, FULL)
 
-    def test_multiword_term_is_not_split_across_pieces(self):
-        s, _, out = self._session()
-        for _ in range(8):
+    def test_next_sentence_is_capitalized_after_a_typed_period(self):
+        script = [("Готово.", 0.0, 0.5), ("и", 0.7, 0.9), ("дальше.", 1.0, 1.5)]
+        s, _, out = self._session(script=script)
+        for _ in range(6):
             s.feed(speech(0.5))
         s.finish(np.empty(0, dtype=np.float32))
-        self.assertFalse(any(piece.rstrip().endswith("клод") for piece in out))
+        self.assertEqual("".join(out), "Готово. И дальше.")
 
     def test_silence_is_not_sent_to_the_model(self):
         s, model, out = self._session()
@@ -155,13 +199,6 @@ class TestLiveSession(unittest.TestCase):
         self.assertEqual(out, [])
         self.assertEqual(text, "")
 
-    def test_accept_check_does_not_block_a_normal_tail(self):
-        s, _, out = self._session()
-        for _ in range(8):
-            s.feed(speech(0.5))
-        s.finish(np.empty(0, dtype=np.float32), accept=lambda t: t != "Yeah.")
-        self.assertEqual("".join(out), "Посмотри в Figma макет, там Claude Code работает.")
-
     def test_focus_loss_stops_typing_and_keeps_the_rest(self):
         state = {"typed": 0}
         out = []
@@ -177,12 +214,9 @@ class TestLiveSession(unittest.TestCase):
         for _ in range(8):
             s.feed(speech(0.5))
         s.finish(np.empty(0, dtype=np.float32))
-        self.assertEqual(len(out), 1)
-        self.assertTrue(s.undelivered)
-        self.assertEqual(
-            " ".join([out[0].strip(), s.undelivered]),
-            "Посмотри в Figma макет, там Claude Code работает.",
-        )
+        self.assertEqual(out, ["Посмотри в Figma макет."])
+        self.assertEqual(s.undelivered, "Там Claude Code работает.")
+        self.assertEqual(s.text, FULL)
 
 
 if __name__ == "__main__":
