@@ -17,8 +17,8 @@ Hold Right Option and speak, or **double-tap** it for hands-free — your text i
 - 🪄 **Smart modes** — pick **Raw** (verbatim), **Clean** (strip filler & fix punctuation), or **Prompt** (restructure your dictation into a clear instruction for an AI) from the **Smart** menu. Runs a small on-device LLM (`Qwen2.5-1.5B-Instruct-4bit` via `mlx_lm`) — still no cloud. Add domain terms via **Edit vocabulary…** so misheard names/jargon get fixed and bias Whisper itself.
 - ⚡ **Live typing** — text appears in the focused field while you talk, **sentence by sentence** (Parakeet + Raw). Every ~0.4 s the last seconds of audio are re-transcribed with a full model pass; a sentence is typed once its end (. ? !) is the same in two passes and confirmed by the next word or a pause, using the freshest pass — so each sentence is recognized with its full context and you don't get «. и» / «, Но» glitches at the seams (typed text can't be corrected in another app's field). A very long sentence without a period is typed up to its last confirmed comma. Typed as keystrokes, so it works in Electron apps and terminals; the held hotkey's modifier is not applied to typed text. If you switch windows mid-dictation, typing stops and the full text is in **Copy last text**. Toggle: **Smart → Печатать по ходу речи**. Off = the whole text is inserted at the end, as before.
 - 🔤 **Terms / replacements** — a `heard → wanted` map in `config.json` rewrites terms in the text. Add one from the menu with **Добавить термин…** (`фигма = Figma`, `хавар = ховер`) or edit the file (**Edit replacements…**). Declined forms of a dictionary-form key are matched too: `фигма = Figma` also fixes «в фигме», «фигму»; `хавар = ховер` turns «хавару» into «ховеру». A key that's already an inflected form (e.g. `пройде`) only matches exactly, so real words aren't touched. Applied after transcription (and after any Smart polish), also to live typing — no extra latency. Edits apply on your next dictation.
-- 📞 **Call Mode** — a second, independent recording mode for calls: captures both sides (your mic + the call's system audio via a virtual loopback device), transcribes continuously in the background, and on stop saves the transcript to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste into any AI for analysis. Independent Start/Stop hotkey (**Call Hotkey**, default `F13`) and menu item; recording one mode blocks the other. See [Call Mode](#call-mode) below for the one-time setup. No speaker labels, no live transcript view, no raw audio saved.
-- 💾 **Settings persist** across restarts (favorite languages, active language, hotkey, smart mode, vocabulary, model, insertion mode, replacements, call hotkey, call device) in `~/.config/just-voice-type/config.json`.
+- 📞 **Call Mode** — a second, independent recording mode for calls: captures both sides (your mic + the call's system audio — **automatically on macOS 14.4+ via a Core Audio tap**, no loopback driver needed; virtual-loopback fallback for older macOS), transcribes continuously in the background, and on stop saves a timestamped transcript (`[MM:SS] text`) to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste into any AI for analysis. Survives headphone / audio-routing changes mid-call. Independent Start/Stop hotkey (**Call Hotkey**, default `F13`) and menu item; recording one mode blocks the other. See [Call Mode](#call-mode) below. No speaker labels, no live transcript view, no raw audio saved.
+- 💾 **Settings persist** across restarts (favorite languages, active language, hotkey, smart mode, vocabulary, model, insertion mode, replacements, call hotkey, call device, auto system-audio capture, live typing) in `~/.config/just-voice-type/config.json`.
 - 📋 **Auto-paste** of recognized text via clipboard + `Cmd+V`, with original clipboard restored
 - 📝 **Insertion mode** — by default text is pasted via clipboard + Cmd+V (and the previous clipboard is restored). Switch to **Insert via Accessibility** from the menu (under **Smart → Insert via Accessibility**) to type straight into the focused field. In this mode the dictation **lands in the field you started in** even if you switch windows (it inserts into that app in the background), and the **clipboard is never clobbered** — on any fallback the previous clipboard is restored, and every dictation is always kept in the History menu. If the original field can't accept a background insert, the text is kept in history and you get a notification (no window is yanked to the front).
 - 🕘 **History menu** — the last 15 dictations, persisted across restarts (50 kept on disk in `~/.config/just-voice-type/history.json`); click any entry to copy it back to the clipboard
@@ -63,18 +63,24 @@ Notes:
 
 A second, independent recording mode for calls (Teams, WhatsApp, Zoom, anything). Unlike dictation, Call Mode:
 
-- Records **both sides** — your microphone and the call's system audio — merged into one stream.
+- Records **both sides** — your microphone and the call's system audio. With automatic capture each side is transcribed on its own (so the other party's language doesn't hijack recognition of yours) and the utterances are merged chronologically as `[MM:SS] text` lines.
+- Recovers on its own when the audio route changes mid-call (headphones plugged in, Bluetooth switching); a `[⚠ пропуск записи ~Ns]` marker shows any short gap.
 - Runs for as long as the call lasts (up to a 4-hour safety cap), transcribing in the background the same way long dictations do.
 - On stop, saves the full transcript to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste it into any AI tool for analysis. No auto-paste into a field.
 - Starts/stops via the **Start Call Recording** menu item (turns into **■ Stop Call Recording** while active), or a dedicated toggle hotkey (**Call Hotkey** menu, default `F13`) — independent of the dictation hotkey. Starting one mode blocks the other.
 - Past calls are listed under **Calls** — click one to copy its transcript back to the clipboard, or use **Open Calls folder…**.
 - Recording a call may require the other party's consent depending on your jurisdiction — check your local law before you start.
+- With **automatic system-audio capture** on (see below), a call recording captures **everything playing on your Mac** during the call — not just the call app. Mute or quit other audio sources if you don't want them in the transcript.
 
 Call Mode does **not** do speaker labels, a live growing transcript, or save the raw audio.
 
-### One-time setup (per Mac)
+### Setup
 
-Capturing the other side of a call requires a virtual audio loopback device — macOS has no built-in way to record its own output. This is a one-time setup, not something the app can do for you:
+**Automatic (macOS 14.4+, default) — no setup.** Call Mode captures the whole system output via a Core Audio process tap and mixes in your microphone, so you get both sides with **no loopback driver and no Audio MIDI Setup**. The first time you start a call, macOS shows a one-time **"Voice Type wants to record this computer's audio"** prompt — allow it. Toggle this off anytime with the **Авто-захват системного звука** menu item (then it uses the manual path below).
+
+> Packaging note: the tap is read by a small Swift helper, `WhisperFlowSysCap`. Build it from source with `scripts/build_syscap.sh` (needs Xcode Command Line Tools) — by default into `native/WhisperFlowSysCap` (used when running from source), or pass `".../Voice Type.app/Contents/MacOS/WhisperFlowSysCap"` to install it into the app bundle. The bundle's `Contents/Info.plist` must carry an `NSAudioCaptureUsageDescription` string. Without the helper or that key the app silently falls back to the manual path.
+
+**Manual fallback (older macOS, or when auto-capture is off).** Capturing the other side then requires a virtual audio loopback device — a one-time setup:
 
 1. Install a virtual audio driver if you don't already have one — e.g. [VB-Cable](https://vb-audio.com/Cable/) or [BlackHole](https://github.com/ExistentialAudio/BlackHole) (free).
 2. Open **Audio MIDI Setup** (Spotlight → "Audio MIDI Setup") and create an **Aggregate Device** combining your Mac's microphone and the virtual cable (e.g. "MacBook Pro Microphone" + "VB-Cable"). This becomes your input — select it in Just Voice Type's **Call Device** menu.
@@ -201,6 +207,28 @@ python3 voice_type.py --engine faster --model large-v3                # CPU fast
 | Hallucinations like "Thanks for watching!" | Known Whisper artifact on silence. The most common ones are filtered out; for the rest, speak a bit longer. |
 | LaunchAgent restarts in a loop | `launchctl print gui/$(id -u)/com.justvoicetype.local` shows the exit code. Usually missing permissions or no `.venv`. |
 | "Микрофон завис в CoreAudio — перезапускаю" notification | macOS CoreAudio wedged while closing/opening the mic stream. The app relaunches itself (up to 3 times per 15 min); repeat the dictation once the 🎙 is back. Diagnostics: `[recovery]` thread stacks in `whisper_flow.err.log` and native stacks in `~/Library/Logs/WhisperFlow/hang-*.txt`. If it keeps happening, reboot or run `sudo killall coreaudiod`. |
+| Recording works but every capture is silent (`RMS=0.0000`) and no permission prompt ever appears | The `.app` bundle lost (or never had) a code signature — macOS then denies microphone access instantly, with no dialog, and the app can't be added manually. See **Bundle signing** below. |
+
+### Bundle signing (required after any bundle change)
+
+The packaged `Voice Type.app` **must be code-signed**, otherwise macOS TCC breaks in a way you cannot recover from the UI: permission prompts stop appearing, `AVCaptureDevice.requestAccessForMediaType` returns *denied* immediately, captures return digital silence, and System Settings → Microphone offers no way to add the app. Editing an unsigned bundle (adding a binary to `Contents/MacOS/`, changing `Info.plist`) also silently drops Accessibility / Input Monitoring.
+
+Ad-hoc signing is free and enough:
+
+```bash
+codesign --force --deep --sign - "$HOME/Applications/Voice Type.app"
+```
+
+Re-signing resets the app's permissions, so grant them once afterwards:
+
+```bash
+tccutil reset Accessibility com.whisperflow.local
+tccutil reset ListenEvent com.whisperflow.local
+tccutil reset Microphone com.whisperflow.local
+open "$HOME/Applications/Voice Type.app"
+```
+
+then allow the microphone prompt and re-enable **Voice Type** in **Privacy & Security → Accessibility** and **Input Monitoring**. A paid Apple **Developer ID** certificate makes grants survive bundle updates and enables notarization — worth it if you change the bundle often.
 
 ## License
 

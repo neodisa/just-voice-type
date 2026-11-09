@@ -21,3 +21,6 @@ venv/
 Wispr app my/
 
 # Generated/rendered plist (install_autostart.sh writes one into ~/Library/LaunchAgents/)
+
+# Built system-audio helper (scripts/build_syscap.sh)
+native/WhisperFlowSysCap

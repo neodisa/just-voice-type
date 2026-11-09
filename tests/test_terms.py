@@ -35,8 +35,8 @@ class TestBrandFormsCollapseToBrand(unittest.TestCase):
         self.assertEqual(terms.apply("из гитхаба", rules), "из GitHub")
 
     def test_unrelated_longer_word_is_untouched(self):
-        # «фигмоша» — другое слово, не форма «фигмы»
-        self.assertEqual(terms.apply("Фигмоша готова", self.RULES), "Фигмоша готова")
+        # «фигмовка» — другое слово, не форма «фигмы»
+        self.assertEqual(terms.apply("Фигмовка готова", self.RULES), "Фигмовка готова")
 
 
 class TestCyrillicFormsCarryTheEnding(unittest.TestCase):
