@@ -40,13 +40,18 @@ import history
 import i18n
 import languages
 import live_typing
+import login_item
 import menubar_icon
 import mic_recovery
 import model_cache
+import model_catalog
 import polish
+import settings_bridge
+import settings_model
 import streaming
 import system_audio
 import terms
+import updates
 
 # единственный источник правды о версии; бампается при каждом релизе
 # (тег vX.Y.Z в git должен совпадать)
@@ -1318,7 +1323,7 @@ def run_app(args):
     # до загрузки любых моделей: не даём MLX копить Metal-буферы гигабайтами
     limit_mlx_cache()
 
-    transcriber_holder: dict = {"obj": None, "loading": False, "cached": True}
+    transcriber_holder: dict = {"obj": None, "loading": False, "cached": True, "error": None}
 
     # текущая выбранная модель (меняется из меню, переживает перезапуск);
     # значение подставляется ниже после чтения конфига
@@ -1336,6 +1341,7 @@ def run_app(args):
         transcriber_holder["obj"] = None
         # для строки статуса: «Загружаю» (веса на диске) или «Скачиваю»
         transcriber_holder["cached"] = model_cache.is_cached(current_model["value"] or "")
+        transcriber_holder["error"] = None
 
         def _load():
             target = current_model["value"]
@@ -1359,6 +1365,8 @@ def run_app(args):
                 )
             except Exception as e:
                 print(f"[!] Model load error: {e}", file=sys.stderr)
+                if current_model["value"] == target:
+                    transcriber_holder["error"] = str(e)[:200]
             finally:
                 transcriber_holder["loading"] = False
 
@@ -1451,36 +1459,390 @@ def run_app(args):
             call_device=current_call_device["value"],
         )
 
-    # модели для подменю «Model» (только для движка mlx).
-    MLX_MODELS = [
-        ("⚡ Parakeet v3 — fastest, default (RU/UK/EN)", "mlx-community/parakeet-tdt-0.6b-v3"),
-        ("🎯 Large v3 — most accurate", "mlx-community/whisper-large-v3-mlx"),
-        ("⚡ Turbo — faster decode, weaker RU/UK", "mlx-community/whisper-large-v3-turbo"),
-        ("Medium — balanced", "mlx-community/whisper-medium-mlx"),
-        ("Small — fastest", "mlx-community/whisper-small-mlx"),
-    ]
+    # ── применение настроек (окно настроек; раньше — подменю) ──────────────
+    # Каждая функция меняет состояние приложения, сохраняет конфиг и
+    # возвращает None или текст ошибки для окна. Уведомлений не шлёт:
+    # окно само показывает результат.
+    def apply_hotkey(name):
+        if name == current_hotkey["value"]:
+            return None
+        try:
+            new_key = parse_hotkey(name)
+        except ValueError:
+            return i18n.t("settings.err.invalid")
+        # если прямо сейчас идёт запись на старой клавише — чисто стопаем
+        # без транскрипции (через управляющий поток)
+        with gesture_lock:
+            if gr.is_recording:
+                _cancel_pending_timer()
+                gr.mode = "idle"
+                ctrl.put("abort")
+        current_hotkey["value"] = name
+        hotkey_obj_holder["key"] = new_key
+        persist()
+        log(f"[i] Hotkey set: {name}")
+        return None
 
-    # пресеты хоткея для подменю «Hotkey». None = разделитель.
-    # имена должны быть понятны parse_hotkey().
-    HOTKEY_PRESETS = [
-        ("Right Option", "right_option"),
-        ("Left Option", "left_option"),
-        ("Fn", "fn"),
-        ("Right Command", "right_cmd"),
-        ("Left Command", "left_cmd"),
-        ("Right Control", "right_ctrl"),
-        ("Right Shift", "right_shift"),
-        None,
-        ("F13", "f13"), ("F14", "f14"), ("F15", "f15"), ("F16", "f16"),
-        ("F17", "f17"), ("F18", "f18"), ("F19", "f19"),
-    ]
+    def apply_call_hotkey(name):
+        if name == current_call_hotkey["value"]:
+            return None
+        try:
+            new_key = parse_hotkey(name)
+        except ValueError:
+            return i18n.t("settings.err.invalid")
+        # идущий звонок аккуратно завершаем с доставкой расшифровки
+        if call_session["active"]:
+            ctrl.put("call_stop")
+        current_call_hotkey["value"] = name
+        call_hotkey_obj_holder["key"] = new_key
+        persist()
+        log(f"[i] Call hotkey set: {name}")
+        return None
 
-    # пресеты для подменю «Smart» (режим LLM-прохода)
-    SMART_PRESETS = [
-        ("Raw — verbatim Whisper", "raw"),
-        ("Clean — fix filler & punctuation", "clean"),
-        ("Prompt — restructure for AI", "prompt"),
-    ]
+    def apply_model(repo):
+        if args.engine != "mlx":
+            return i18n.t("settings.err.unavailable")
+        if repo == current_model["value"] and transcriber_holder["error"] is None:
+            return None
+        current_model["value"] = repo
+        transcriber_holder["error"] = None
+        persist()  # выбор модели переживает перезапуск
+        log(f"[i] Model set: {repo}")
+        # следующая диктовка подхватит новую модель (MLX грузит лениво)
+        transcriber_holder["obj"] = None
+        get_transcriber()
+        return None
+
+    def apply_smart_mode(mode):
+        if mode != smart_mode["value"]:
+            smart_mode["value"] = mode
+            persist()
+            warm_polisher_async()
+            log(f"[i] Smart mode set: {mode}")
+        return None
+
+    def apply_insert_mode(mode):
+        insert_mode["value"] = mode
+        persist()
+        return None
+
+    def apply_live_typing(on):
+        live_typing_on["value"] = bool(on)
+        config.update(live_typing=live_typing_on["value"])
+        return None
+
+    def apply_active_language(code):
+        current_lang["value"] = code
+        if code is not None and code not in favorites["value"]:
+            favorites["value"].append(code)
+        persist()
+        return None
+
+    def toggle_favorite(code):
+        if not languages.is_valid(code):
+            return
+        favs = favorites["value"]
+        if code in favs:
+            if code == current_lang["value"]:
+                return  # активный язык нельзя спрятать
+            favs.remove(code)
+        else:
+            favs.append(code)
+        persist()
+
+    def apply_call_device(name):
+        current_call_device["value"] = name
+        persist()
+        return None
+
+    def apply_auto_sysaudio(on):
+        current_auto_sysaudio["value"] = bool(on)
+        config.update(auto_system_audio=current_auto_sysaudio["value"])
+        return None
+
+    def apply_ui_language(value):
+        config.update(ui_language=value)
+        i18n.set_language(i18n.resolve(value, i18n.system_languages()))
+        menu_dirty["value"] = True
+        return None
+
+    def apply_login(on):
+        app_path = login_item.app_bundle_path()
+        if app_path is None:
+            return i18n.t("settings.err.unavailable")
+        err = login_item.enable(app_path) if on else login_item.disable()
+        if err:
+            log(f"[login] {err}", err=True)
+            return i18n.t("settings.err.save_failed")
+        return None
+
+    SETTERS = {
+        "hotkey": apply_hotkey,
+        "call_hotkey": apply_call_hotkey,
+        "model": apply_model,
+        "smart_mode": apply_smart_mode,
+        "insert_mode": apply_insert_mode,
+        "live_typing": apply_live_typing,
+        "active_language": apply_active_language,
+        "call_device": apply_call_device,
+        "auto_system_audio": apply_auto_sysaudio,
+        "ui_language": apply_ui_language,
+        "launch_at_login": apply_login,
+    }
+
+    def start_or_stop_call():
+        if call_session["active"]:
+            ctrl.put("call_stop")
+        elif session["active"]:
+            notify("Voice Type", i18n.t("notify.dictation_busy"))
+        else:
+            call_session["active"] = True
+            ctrl.put("call_start")
+        menu_dirty["value"] = True
+
+    def copy_call(path):
+        """Скопировать расшифровку звонка; True — получилось."""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError as e:
+            notify("Voice Type", i18n.t("notify.call_unreadable", error=e))
+            return False
+        copy_to_clipboard(text)
+        return True
+
+    # ── окно настроек: SwiftUI-хелпер и его снимки ─────────────────────────
+    settings_bridge_obj = settings_bridge.SettingsBridge(log=log)
+    update_checker = updates.Checker(__version__)
+    settings_ctx = {
+        "rev": 0, "ack": None, "errors": {}, "last": None,
+        "undo": None,  # (словарь до удаления, словарь после) для «Отменить»
+        "devices": [], "cached": frozenset(), "polish_cached": True,
+        "login_enabled": False, "lang_names": {},
+    }
+    LOGS_DIRS = (
+        os.path.expanduser("~/Library/Logs/JustVoiceType"),
+        os.path.expanduser("~/Library/Logs/WhisperFlow"),
+    )
+    LINK_URLS = {
+        "github": "https://github.com/neodisa/just-voice-type",
+        "releases": RELEASES_URL,
+        "call_setup": "https://github.com/neodisa/just-voice-type#call-mode",
+    }
+
+    def _logs_dir():
+        for d in LOGS_DIRS:
+            if os.path.isdir(d):
+                return d
+        return None
+
+    def _input_devices():
+        names = []
+        try:
+            for info in recorder.sd.query_devices():
+                if int(info.get("max_input_channels", 0)) > 0 and info["name"] not in names:
+                    names.append(info["name"])
+        except Exception as e:
+            log(f"[!] could not list devices: {e}")
+        return names
+
+    def refresh_settings_caches():
+        """Дорогие данные для снимка — при открытии окна и после изменений."""
+        settings_ctx["devices"] = _input_devices()
+        settings_ctx["cached"] = frozenset(
+            m.id for m in model_catalog.MODELS if model_cache.is_cached(m.id)
+        ) | ({current_model["value"]} if model_cache.is_cached(current_model["value"] or "") else frozenset())
+        settings_ctx["polish_cached"] = model_cache.is_cached(polish.POLISH_MODEL)
+        settings_ctx["login_enabled"] = login_item.is_enabled(login_item.app_bundle_path())
+
+    def _lang_name(code, ui):
+        key = (code, ui)
+        cache = settings_ctx["lang_names"]
+        if key not in cache:
+            cache[key] = settings_model.localized_language_name(code, ui)
+        return cache[key]
+
+    def settings_view(snap):
+        model = current_model["value"] or ""
+        progress = None
+        if transcriber_holder["loading"] and not transcriber_holder["cached"]:
+            cat = model_catalog.get(model)
+            if cat is not None:
+                progress = min(0.99, model_cache.downloaded_bytes(model) / max(1, cat.size_bytes))
+        cfg_now = config.load()
+        return settings_model.View(
+            version=__version__,
+            now=snap.now,
+            snapshot=snap,
+            hotkey=current_hotkey["value"],
+            call_hotkey=current_call_hotkey["value"],
+            live_typing=live_typing_on["value"],
+            insert_mode=insert_mode["value"],
+            ui_language=cfg_now["ui_language"],
+            system_language=i18n.resolve("system", i18n.system_languages()),
+            login_available=login_item.app_bundle_path() is not None,
+            login_enabled=settings_ctx["login_enabled"],
+            model=model,
+            cached_models=settings_ctx["cached"],
+            model_loading=transcriber_holder["loading"],
+            model_progress=progress,
+            model_error=transcriber_holder["error"],
+            smart_mode=smart_mode["value"],
+            polish_cached=settings_ctx["polish_cached"],
+            active_language=current_lang["value"],
+            favorites=list(favorites["value"]),
+            vocabulary=list(vocabulary["value"]),
+            calls=list(calls_items["value"]),
+            call_state=call_state["value"],
+            call_started_at=call_session["start_ts"] if call_state["value"] == "recording" else None,
+            auto_supported=system_audio.is_supported(),
+            auto_capture=current_auto_sysaudio["value"],
+            call_device=current_call_device["value"],
+            input_devices=settings_ctx["devices"],
+            terms=dict(cfg_now["replacements"]),
+            update=dict(update_checker.state),
+            logs_available=_logs_dir() is not None,
+        )
+
+    def push_settings_state(snap, force=False):
+        """Отправить окну снимок, если что-то изменилось (или force)."""
+        if not settings_bridge_obj.is_open():
+            return
+        msg = settings_model.build(
+            settings_view(snap), rev=settings_ctx["rev"] + 1,
+            ack=settings_ctx["ack"], errors=settings_ctx["errors"], lang_name=_lang_name,
+        )
+        body = json.dumps({k: v for k, v in msg.items() if k != "rev"}, sort_keys=True, ensure_ascii=False)
+        if not force and body == settings_ctx["last"]:
+            return
+        settings_ctx["last"] = body
+        settings_ctx["rev"] += 1
+        settings_bridge_obj.send(msg)
+
+    def open_settings(section=None):
+        if settings_bridge_obj.is_open():
+            settings_bridge_obj.open(section)
+            return
+        if not settings_bridge_obj.available():
+            notify("Voice Type", i18n.t("notify.settings_missing"))
+            return
+        refresh_settings_caches()
+        settings_ctx.update(ack=None, errors={}, last=None)
+        if not settings_bridge_obj.open(section):
+            notify("Voice Type", i18n.t("notify.settings_missing"))
+
+    def _save_terms(new_terms):
+        config.update(replacements=new_terms)
+
+    def run_settings_action(name, a):
+        """Действие из окна → словарь ошибок для снимка."""
+        if name in ("term_add", "term_update"):
+            terms_now = dict(config.load()["replacements"])
+            if name == "term_add":
+                new, err = settings_model.term_add(terms_now, a.get("heard"), a.get("wanted"))
+            else:
+                new, err = settings_model.term_update(terms_now, a.get("index"), a.get("heard"), a.get("wanted"))
+            if err:
+                return {"term": err}
+            _save_terms(new)
+            log(f"[terms] {name}: {len(new)} terms")
+        elif name == "term_delete":
+            terms_now = dict(config.load()["replacements"])
+            new, deleted = settings_model.term_delete(terms_now, a.get("index"))
+            if deleted is not None:
+                _save_terms(new)
+                settings_ctx["undo"] = (terms_now, new)
+                settings_bridge_obj.send({
+                    "type": "toast",
+                    "text": i18n.t("settings.toast.term_deleted", heard=deleted[0], wanted=deleted[1]),
+                    "action": {"name": "term_undo_delete", "label": i18n.t("settings.common.undo"), "args": {}},
+                })
+        elif name == "term_undo_delete":
+            undo = settings_ctx["undo"]
+            if undo is not None:
+                before, after = undo
+                terms_now = dict(config.load()["replacements"])
+                if terms_now == after:
+                    _save_terms(before)
+                else:  # успели что-то поменять — просто возвращаем удалённое
+                    for h, w in before.items():
+                        if h not in after:
+                            terms_now[h] = w
+                    _save_terms(terms_now)
+                settings_ctx["undo"] = None
+        elif name in ("vocab_add", "vocab_remove"):
+            if name == "vocab_add":
+                new, err = settings_model.vocab_add(vocabulary["value"], a.get("word"))
+                if err:
+                    return {"vocab": err}
+            else:
+                new = settings_model.vocab_remove(vocabulary["value"], a.get("index"))
+            vocabulary["value"] = new
+            config.update(vocabulary=new)
+        elif name == "favorite_toggle":
+            toggle_favorite(a.get("code"))
+        elif name == "call_toggle":
+            start_or_stop_call()
+        elif name in ("call_copy", "call_open"):
+            path = a.get("id")
+            known = {c.get("path") for c in calls_items["value"]}
+            if path in known:
+                if name == "call_copy":
+                    if copy_call(path):
+                        settings_bridge_obj.send({"type": "toast", "text": i18n.t("settings.toast.copied"), "action": None})
+                else:
+                    subprocess.Popen(["open", path])
+        elif name == "calls_open_folder":
+            os.makedirs(calls.calls_dir(), exist_ok=True)
+            subprocess.Popen(["open", calls.calls_dir()])
+        elif name == "model_retry":
+            transcriber_holder["error"] = None
+            transcriber_holder["obj"] = None
+            get_transcriber()
+        elif name == "check_updates":
+            update_checker.start()
+        elif name == "open_link":
+            lid = a.get("id")
+            if lid in LINK_URLS:
+                subprocess.Popen(["open", LINK_URLS[lid]])
+            elif lid == "update":
+                subprocess.Popen(["open", update_checker.state.get("url") or RELEASES_URL])
+            elif lid == "config":
+                persist()  # файл должен существовать
+                subprocess.Popen(["open", "-R", config.config_path()])
+            elif lid == "logs" and _logs_dir():
+                subprocess.Popen(["open", _logs_dir()])
+        else:
+            log(f"[settings] unknown action: {name}")
+        return {}
+
+    def handle_settings_message(msg, snap):
+        t = msg["type"]
+        if t == "ready":
+            push_settings_state(snap, force=True)
+            if settings_bridge_obj.pending_section:
+                settings_bridge_obj.send({"type": "focus", "section": settings_bridge_obj.pending_section})
+                settings_bridge_obj.pending_section = None
+            return
+        if t == "closed":
+            settings_ctx.update(ack=None, errors={}, last=None, undo=None)
+            return
+        settings_ctx["ack"] = msg.get("req")
+        if t == "set":
+            key, value = msg["key"], msg.get("value")
+            value, err = settings_model.validate_set(settings_view(snap), key, value)
+            if err is None and key in SETTERS:
+                err = SETTERS[key](value)
+            settings_ctx["errors"] = {key: err} if err else {}
+            if err is None:
+                log(f"[settings] {key} = {value!r}")
+                if key in ("model", "launch_at_login"):
+                    refresh_settings_caches()
+                menu_dirty["value"] = True
+        elif t == "action":
+            settings_ctx["errors"] = run_settings_action(msg["name"], msg.get("args") or {})
+            menu_dirty["value"] = True
+        push_settings_state(snap, force=True)
 
     class VoiceTypeApp(rumps.App):
         def __init__(self):
@@ -1492,6 +1854,7 @@ def run_app(args):
             self._status_item = None
             self._status_shown = None
             self._last_slow = 0.0
+            self._last_menu_key = None
             self._build_menu()
             # 0.1 с — чтобы полоски уровня и таймеры были живыми; тяжёлая
             # часть (watchdog, перестройка меню) идёт по-прежнему раз в 0.3 с
@@ -1501,44 +1864,40 @@ def run_app(args):
         # ── построение меню из текущего состояния ──────────────────────────
         def _build_menu(self):
             self.menu.clear()
-            self.menu.update(
-                [
-                    self._make_status_item(),
-                    None,
+            items = []
+            upd = update_checker.state
+            if upd.get("state") == "update":
+                items += [
                     rumps.MenuItem(
-                        f"Voice Type v{__version__} — releases…",
-                        callback=self.open_releases,
+                        i18n.t("menu.update", version=upd.get("version", "")),
+                        callback=lambda _: subprocess.Popen(["open", upd.get("url") or RELEASES_URL]),
                     ),
                     None,
-                    self._hotkey_menu(),
-                    self._model_menu(),
-                    self._smart_menu(),
-                    None,
-                    self._language_menu(),
-                    None,
-                    rumps.MenuItem(
-                        "Enable hotkey"
-                        if not enabled["value"]
-                        else "Pause (disable hotkey)",
-                        callback=self.toggle_enabled,
-                    ),
-                    rumps.MenuItem("Copy last text", callback=self.copy_last),
-                    rumps.MenuItem("Добавить термин…", callback=self.add_term),
-                    self._history_menu(),
-                    None,
-                    rumps.MenuItem(
-                        "■ Stop Call Recording"
-                        if call_session["active"]
-                        else "Start Call Recording",
-                        callback=self.toggle_call,
-                    ),
-                    self._call_hotkey_menu(),
-                    self._auto_sysaudio_item(),
-                    self._call_device_menu(),
-                    self._calls_menu(),
-                    None,
-                    rumps.MenuItem("Quit", callback=self.quit_app),
                 ]
+            items += [self._make_status_item(), None, self._call_item()]
+            items += self._recent_calls_items()
+            items += [
+                None,
+                self._copy_last_item(),
+                self._history_menu(),
+                self._add_term_item(),
+                None,
+                rumps.MenuItem(
+                    i18n.t("menu.pause") if enabled["value"] else i18n.t("menu.resume"),
+                    callback=self.toggle_enabled,
+                ),
+                rumps.MenuItem(i18n.t("menu.settings"), callback=lambda _: open_settings(), key=","),
+                rumps.MenuItem(i18n.t("menu.quit"), callback=self.quit_app, key="q"),
+            ]
+            self.menu.update(items)
+            self._last_menu_key = self._menu_key()
+
+        def _menu_key(self):
+            """Что влияет на меню помимо menu_dirty: язык, запись звонка,
+            пауза, найденное обновление."""
+            return (
+                i18n.language(), call_session["active"], enabled["value"],
+                update_checker.state.get("state"),
             )
 
         def _make_status_item(self):
@@ -1551,86 +1910,71 @@ def run_app(args):
             self._status_shown = st
             return item
 
-        def _auto_sysaudio_item(self):
-            """Чек-пункт «Авто-захват системного звука». Активен только если
-            система поддерживает process tap (macOS 14.4+ и хелпер на месте)."""
-            supported = system_audio.is_supported()
-            it = rumps.MenuItem(
-                "Авто-захват системного звука",
-                callback=self.toggle_auto_sysaudio if supported else None,
+        def _call_item(self):
+            active = call_session["active"]
+            item = rumps.MenuItem(
+                i18n.t("menu.call.stop") if active else i18n.t("menu.call.start"),
+                callback=lambda _: start_or_stop_call(),
             )
-            it.state = 1 if (supported and current_auto_sysaudio["value"]) else 0
-            return it
+            self._view_mod.decorate_call_item(item._menuitem, current_call_hotkey["value"], active)
+            return item
 
-        def toggle_auto_sysaudio(self, sender):
-            current_auto_sysaudio["value"] = not current_auto_sysaudio["value"]
-            sender.state = 1 if current_auto_sysaudio["value"] else 0
-            c = config.load()
-            c["auto_system_audio"] = current_auto_sysaudio["value"]
-            config.save(c)
-            state_txt = "включён" if current_auto_sysaudio["value"] else "выключен"
-            print(f"[i] Auto system-audio: {current_auto_sysaudio['value']}")
-            notify("Voice Type", f"Авто-захват системного звука {state_txt}")
-
-        def _hotkey_menu(self):
-            items = []
-            for preset in HOTKEY_PRESETS:
-                if preset is None:
-                    items.append(None)
-                    continue
-                label, name = preset
-                it = rumps.MenuItem(label, callback=self._make_hotkey_setter(name))
-                it.state = 1 if name == current_hotkey["value"] else 0
-                items.append(it)
-            return ("Hotkey", items)
-
-        def _model_menu(self):
-            # поведение модели не меняется: выбор только в памяти, не персистим
-            if args.engine != "mlx":
-                return rumps.MenuItem(
-                    f"Model: {current_model['value'].split('/')[-1]}"
+        def _recent_calls_items(self):
+            recent = calls_items["value"][:3]
+            if not recent:
+                return []
+            hdr = rumps.MenuItem(i18n.t("menu.calls.header"))
+            hdr.set_callback(None)
+            self._view_mod.make_section_header(hdr, i18n.t("menu.calls.header"))
+            out = [hdr]
+            now = time.time()
+            # заголовки пунктов rumps — ключи словаря, поэтому одинаковые
+            # подписи различаем невидимыми пробелами нулевой ширины
+            for i, c in enumerate(recent):
+                path = c.get("path") or ""
+                exists = bool(path) and os.path.exists(path)
+                preview = (c.get("preview") or "").strip() or "…"
+                when = (
+                    f"{settings_model.day_label(c.get('ts') or 0, now)} "
+                    f"{time.strftime('%H:%M', time.localtime(c.get('ts') or 0))} · "
+                    f"{menubar_icon.fmt_elapsed(c.get('duration_sec') or 0)}"
                 )
-            entries = list(MLX_MODELS)
-            known = {repo for _, repo in entries}
-            if current_model["value"] not in known:
-                entries.insert(
-                    0,
-                    (current_model["value"].split("/")[-1], current_model["value"]),
+                copy_it = rumps.MenuItem(
+                    self._view_mod.ellipsize(preview, 44) + "\u200b" * i,
+                    callback=self._make_call_copier(path) if exists else None,
                 )
-            items = []
-            for label, repo in entries:
-                it = rumps.MenuItem(label, callback=self._make_model_setter(repo))
-                it.state = 1 if repo == current_model["value"] else 0
-                items.append(it)
-            return ("Model", items)
+                self._view_mod.set_subtitle(copy_it._menuitem, when)
+                out.append(copy_it)
+                if exists:
+                    open_it = rumps.MenuItem(
+                        i18n.t("menu.calls.open") + "\u200b" * i,
+                        callback=lambda _, p=path: subprocess.Popen(["open", p]),
+                    )
+                    self._view_mod.make_alternate(copy_it._menuitem, open_it._menuitem)
+                    out.append(open_it)
+            out.append(rumps.MenuItem(i18n.t("menu.calls.all"), callback=lambda _: open_settings("calls")))
+            return out
 
-        def _smart_menu(self):
-            items = []
-            for label, mode in SMART_PRESETS:
-                it = rumps.MenuItem(label, callback=self._make_smart_setter(mode))
-                it.state = 1 if mode == smart_mode["value"] else 0
-                items.append(it)
-            items.append(None)
-            items.append(
-                rumps.MenuItem("Edit vocabulary…", callback=self.edit_vocabulary)
-            )
-            items.append(
-                rumps.MenuItem("Edit replacements…", callback=self.edit_replacements)
-            )
-            items.append(None)  # separator: delivery toggle is not a polish preset
-            ax_item = rumps.MenuItem(
-                "Insert via Accessibility (no clipboard)",
-                callback=self._toggle_insert_mode,
-            )
-            ax_item.state = 1 if insert_mode["value"] == "ax" else 0
-            items.append(ax_item)
-            live_item = rumps.MenuItem(
-                "Печатать по ходу речи (Parakeet, Raw)",
-                callback=self._toggle_live_typing,
-            )
-            live_item.state = 1 if live_typing_on["value"] else 0
-            items.append(live_item)
-            return ("Smart", items)
+        def _make_call_copier(self, path):
+            def copier(_):
+                if copy_call(path):
+                    notify("Voice Type", i18n.t("notify.call_copied"))
+
+            return copier
+
+        def _copy_last_item(self):
+            item = rumps.MenuItem(i18n.t("menu.copy_last"), callback=self.copy_last)
+            self._view_mod.set_symbol(item._menuitem, "doc.on.doc")
+            if last_text["value"]:
+                self._view_mod.set_subtitle(
+                    item._menuitem, self._view_mod.ellipsize(" ".join(last_text["value"].split()), 48)
+                )
+            return item
+
+        def _add_term_item(self):
+            item = rumps.MenuItem(i18n.t("menu.add_term"), callback=self.add_term)
+            self._view_mod.set_symbol(item._menuitem, "character.book.closed")
+            return item
 
         def _history_menu(self):
             items = []
@@ -1644,19 +1988,19 @@ def run_app(args):
                     )
                 )
             if not items:
-                empty = rumps.MenuItem("No dictations yet")
+                empty = rumps.MenuItem(i18n.t("menu.history.empty"))
                 empty.set_callback(None)
                 items.append(empty)
             items.append(None)
             items.append(
-                rumps.MenuItem("Clear history…", callback=self.clear_history)
+                rumps.MenuItem(i18n.t("menu.history.clear"), callback=self.clear_history)
             )
-            return ("History", items)
+            return (i18n.t("menu.history"), items)
 
         def _make_history_copier(self, text):
             def copier(_):
                 copy_to_clipboard(text)
-                notify("Voice Type", "Copied from history — paste with Cmd+V")
+                notify("Voice Type", i18n.t("notify.history_copied"))
 
             return copier
 
@@ -1664,122 +2008,7 @@ def run_app(args):
             history.clear()
             history_items["value"] = []
             self._build_menu()
-            notify("Voice Type", "History cleared")
-
-        def _language_menu(self):
-            items = []
-            # верхний блок: Auto + избранные (+ активный), активный отмечен
-            for code in languages.top_section_codes(
-                favorites["value"], current_lang["value"]
-            ):
-                label = (
-                    "🌐 " + languages.display_name(code)
-                    if code is None
-                    else languages.display_name(code)
-                )
-                it = rumps.MenuItem(
-                    label, callback=self._make_active_lang_setter(code)
-                )
-                it.state = 1 if code == current_lang["value"] else 0
-                items.append(it)
-            items.append(None)
-            # подменю «All languages…»: все языки, галочка = в избранном
-            all_menu = rumps.MenuItem("All languages…")
-            favset = set(favorites["value"])
-            for code, name in languages.sorted_all():
-                it = rumps.MenuItem(
-                    name, callback=self._make_favorite_toggler(code)
-                )
-                it.state = 1 if code in favset else 0
-                all_menu.add(it)
-            items.append(all_menu)
-            return ("Language", items)
-
-        # ── сеттеры ────────────────────────────────────────────────────────
-        def _make_active_lang_setter(self, code):
-            def setter(_):
-                current_lang["value"] = code
-                persist()
-                self._build_menu()
-                print(f"[i] Language set: {languages.display_name(code)}")
-
-            return setter
-
-        def _make_favorite_toggler(self, code):
-            def setter(_):
-                favs = favorites["value"]
-                if code in favs:
-                    if code == current_lang["value"]:
-                        # активный язык нельзя спрятать
-                        notify(
-                            "Voice Type",
-                            f"{languages.display_name(code)} is active — keeping it",
-                        )
-                        return
-                    favs.remove(code)
-                else:
-                    favs.append(code)
-                persist()
-                self._build_menu()
-
-            return setter
-
-        def _make_model_setter(self, repo):
-            def setter(_):
-                if repo == current_model["value"]:
-                    return
-                current_model["value"] = repo
-                persist()  # выбор модели переживает перезапуск
-                name = repo.split("/")[-1]
-                print(f"[i] Model set: {name}")
-                # следующая диктовка подхватит новую модель (MLX грузит лениво)
-                transcriber_holder["obj"] = None
-                get_transcriber()
-                self._build_menu()
-                notify("Voice Type", f"Model → {name}")
-
-            return setter
-
-        def _make_smart_setter(self, mode):
-            def setter(_):
-                if mode == smart_mode["value"]:
-                    return
-                smart_mode["value"] = mode
-                persist()
-                self._build_menu()
-                warm_polisher_async()
-                print(f"[i] Smart mode set: {mode}")
-                notify("Voice Type", f"Smart → {mode}")
-
-            return setter
-
-        def _toggle_insert_mode(self, _):
-            insert_mode["value"] = "ax" if insert_mode["value"] == "paste" else "paste"
-            persist()
-            self._build_menu()
-            print(f"[i] Insert mode: {insert_mode['value']}")
-
-        def _toggle_live_typing(self, _):
-            live_typing_on["value"] = not live_typing_on["value"]
-            config.update(live_typing=live_typing_on["value"])
-            self._build_menu()
-            on = live_typing_on["value"]
-            log(f"[i] Live typing: {on}")
-            notify(
-                "Voice Type",
-                "Печать по ходу речи включена (Parakeet + Raw)"
-                if on
-                else "Печать по ходу речи выключена — текст вставляется в конце",
-            )
-
-        def edit_vocabulary(self, _):
-            # словарь правится прямо в конфиг-файле; открываем его в редакторе
-            persist()  # на случай первого запуска — гарантируем, что файл есть
-            subprocess.Popen(["open", config.config_path()])
-            notify(
-                "Voice Type",
-                "Edit the \"vocabulary\" list in config.json — applies on your next dictation",
-            )
+            notify("Voice Type", i18n.t("notify.history_cleared"))
 
         def add_term(self, _):
             """Окно «как распознаётся = как писать» → правило в словарь
@@ -1793,198 +2022,25 @@ def run_app(args):
             except Exception:
                 pass
             resp = rumps.Window(
-                message=(
-                    "Как слово распознаётся = как его писать.\n"
-                    "Примеры:  фигма = Figma    хавар = ховер\n"
-                    "Склонения (фигме, хавару) подхватятся сами."
-                ),
-                title="Добавить термин",
+                message=i18n.t("term.dialog.message"),
+                title=i18n.t("term.dialog.title"),
                 default_text="",
-                ok="Добавить",
-                cancel="Отмена",
+                ok=i18n.t("term.dialog.ok"),
+                cancel=i18n.t("term.dialog.cancel"),
                 dimensions=(320, 24),
             ).run()
             if not resp.clicked:
                 return
             parsed = terms.parse_input(resp.text)
             if parsed is None:
-                notify("Voice Type", "Не понял. Формат: как слышится = как писать")
+                notify("Voice Type", i18n.t("term.bad_format"))
                 return
             heard, wanted = parsed
             reps = dict(config.load()["replacements"])
             reps[heard] = wanted
             config.update(replacements=reps)
             log(f"[terms] added: {heard} → {wanted}")
-            notify("Voice Type", f"Термин добавлен: {heard} → {wanted}")
-
-        def edit_replacements(self, _):
-            # словарь замен правится прямо в конфиг-файле; открываем его
-            persist()  # на случай первого запуска — гарантируем, что файл есть
-            subprocess.Popen(["open", config.config_path()])
-            notify(
-                "Voice Type",
-                'Edit the "replacements" map in config.json — applies on your next dictation',
-            )
-
-        def _make_hotkey_setter(self, name):
-            def setter(_):
-                if name == current_hotkey["value"]:
-                    return
-                if name == current_call_hotkey["value"]:
-                    notify("Voice Type", f"{name} is already the Call Hotkey")
-                    return
-                try:
-                    new_key = parse_hotkey(name)
-                except ValueError:
-                    notify("Voice Type", f"Unsupported hotkey: {name}")
-                    return
-                # если прямо сейчас идёт запись на старой клавише — чисто
-                # стопаем без транскрипции (через управляющий поток)
-                with gesture_lock:
-                    if gr.is_recording:
-                        _cancel_pending_timer()
-                        gr.mode = "idle"
-                        ctrl.put("abort")
-                current_hotkey["value"] = name
-                hotkey_obj_holder["key"] = new_key
-                persist()
-                self._build_menu()
-                print(f"[i] Hotkey set: {name}")
-                notify("Voice Type", f"Hotkey → {name}")
-
-            return setter
-
-        def _call_hotkey_menu(self):
-            items = []
-            for preset in HOTKEY_PRESETS:
-                if preset is None:
-                    items.append(None)
-                    continue
-                label, name = preset
-                it = rumps.MenuItem(label, callback=self._make_call_hotkey_setter(name))
-                it.state = 1 if name == current_call_hotkey["value"] else 0
-                items.append(it)
-            return ("Call Hotkey", items)
-
-        def _make_call_hotkey_setter(self, name):
-            def setter(_):
-                if name == current_call_hotkey["value"]:
-                    return
-                if name == current_hotkey["value"]:
-                    notify("Voice Type", f"{name} is already the dictation Hotkey")
-                    return
-                try:
-                    new_key = parse_hotkey(name)
-                except ValueError:
-                    notify("Voice Type", f"Unsupported hotkey: {name}")
-                    return
-                # если звонок прямо сейчас пишется — аккуратно завершаем его
-                # с доставкой транскрипта, а не бросаем подвешенным на
-                # старой клавише
-                if call_session["active"]:
-                    ctrl.put("call_stop")
-                current_call_hotkey["value"] = name
-                call_hotkey_obj_holder["key"] = new_key
-                persist()
-                self._build_menu()
-                print(f"[i] Call hotkey set: {name}")
-                notify("Voice Type", f"Call Hotkey → {name}")
-
-            return setter
-
-        def _call_device_menu(self):
-            items = []
-            try:
-                devices = recorder.sd.query_devices()
-            except Exception as e:
-                log(f"[!] could not list devices: {e}")
-                devices = []
-            names_seen = set()
-            for info in devices:
-                if int(info.get("max_input_channels", 0)) <= 0:
-                    continue
-                name = info["name"]
-                if name in names_seen:
-                    continue
-                names_seen.add(name)
-                it = rumps.MenuItem(name, callback=self._make_call_device_setter(name))
-                it.state = 1 if name == current_call_device["value"] else 0
-                items.append(it)
-            configured = current_call_device["value"]
-            if configured and configured not in names_seen:
-                warn = rumps.MenuItem(f"⚠️ {configured} (not connected)")
-                warn.set_callback(None)
-                items.insert(0, warn)
-                items.insert(1, None)
-            if not items:
-                empty = rumps.MenuItem("No input devices found")
-                empty.set_callback(None)
-                items.append(empty)
-            return ("Call Device", items)
-
-        def _make_call_device_setter(self, name):
-            def setter(_):
-                current_call_device["value"] = name
-                persist()
-                self._build_menu()
-                print(f"[i] Call device set: {name}")
-                notify("Voice Type", f"Call Device → {name}")
-
-            return setter
-
-        def _calls_menu(self):
-            items = []
-            for i, item in enumerate(calls_items["value"][: calls.MENU_ITEMS], start=1):
-                items.append(
-                    rumps.MenuItem(
-                        calls.label(i, item),
-                        callback=self._make_call_copier(item["path"]),
-                    )
-                )
-            if not items:
-                empty = rumps.MenuItem("No calls recorded yet")
-                empty.set_callback(None)
-                items.append(empty)
-            items.append(None)
-            items.append(
-                rumps.MenuItem("Open Calls folder…", callback=self.open_calls_folder)
-            )
-            items.append(
-                rumps.MenuItem("Clear calls list…", callback=self.clear_calls)
-            )
-            return ("Calls", items)
-
-        def _make_call_copier(self, path):
-            def copier(_):
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        text = f.read()
-                except OSError as e:
-                    notify("Voice Type", f"Could not read transcript: {e}")
-                    return
-                copy_to_clipboard(text)
-                notify("Voice Type", "Copied call transcript — paste with Cmd+V")
-
-            return copier
-
-        def open_calls_folder(self, _):
-            os.makedirs(calls.calls_dir(), exist_ok=True)
-            subprocess.Popen(["open", calls.calls_dir()])
-
-        def clear_calls(self, _):
-            calls.clear()
-            calls_items["value"] = []
-            self._build_menu()
-            notify("Voice Type", "Calls list cleared (files kept on disk)")
-
-        def toggle_call(self, _):
-            if call_session["active"]:
-                ctrl.put("call_stop")
-            elif session["active"]:
-                notify("Voice Type", "Диктовка идёт — сначала остановите её")
-            else:
-                call_session["active"] = True
-                ctrl.put("call_start")
+            notify("Voice Type", i18n.t("term.added", heard=heard, wanted=wanted))
 
         # ── статус-иконка и действия ────────────────────────────────────────
         def _snapshot(self, now):
@@ -2003,7 +2059,7 @@ def run_app(args):
                 else 0.0,
                 model_loading=transcriber_holder["loading"],
                 model_cached=transcriber_holder["cached"],
-                model_name=model.split("/")[-1],
+                model_name=model_catalog.display_name(model),
                 audio_dead=recovery["gave_up"],
                 hotkey=current_hotkey["value"],
             )
@@ -2033,9 +2089,20 @@ def run_app(args):
                     log(f"[!] watchdog: {key}", err=True)
             # перестройка меню (новая запись в истории) — только здесь,
             # в главном потоке AppKit; воркер лишь поднимает флаг
+            if self._menu_key() != self._last_menu_key:
+                menu_dirty["value"] = True
             if menu_dirty["value"]:
                 menu_dirty["value"] = False
                 self._build_menu()
+            # окно настроек: ответы хелпера и свежий снимок, если что-то
+            # поменялось (запись, скачивание модели, новый звонок…)
+            snap = self._snapshot(now)
+            for msg in settings_bridge_obj.poll():
+                try:
+                    handle_settings_message(msg, snap)
+                except Exception as e:
+                    log(f"[settings] {msg.get('type')}: {type(e).__name__}: {e}", err=True)
+            push_settings_state(snap)
 
         def _watchdog_tick(self, now):
             """Страховка от «вечной записи».
@@ -2130,18 +2197,15 @@ def run_app(args):
             enabled["value"] = not enabled["value"]
             self._build_menu()
 
-        def open_releases(self, _):
-            # быстрый способ проверить, последняя ли версия установлена
-            subprocess.Popen(["open", RELEASES_URL])
-
         def copy_last(self, _):
             if last_text["value"]:
                 copy_to_clipboard(last_text["value"])
-                notify("Voice Type", "Last text copied")
+                notify("Voice Type", i18n.t("notify.last_copied"))
             else:
-                notify("Voice Type", "Nothing transcribed yet")
+                notify("Voice Type", i18n.t("notify.nothing_yet"))
 
         def quit_app(self, _):
+            settings_bridge_obj.close()
             rumps.quit_application()
 
     # накопленные транскрипты чанков по сессиям: sid → [str, ...]

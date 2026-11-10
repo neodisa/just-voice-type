@@ -99,3 +99,52 @@ class TestDot(unittest.TestCase):
     def test_every_dot_kind_renders(self):
         for kind in mv.DOT_RGB:
             self.assertIsNotNone(mv.dot_image(kind))
+
+
+class FakeNSItem:
+    def __init__(self):
+        self.calls = {}
+
+    def __getattr__(self, name):
+        if name.endswith("_"):
+            return lambda *a: self.calls.__setitem__(name, a)
+        raise AttributeError(name)
+
+
+class FakeRumpsItem:
+    def __init__(self):
+        self._menuitem = FakeNSItem()
+
+
+@unittest.skipIf(mv is None, "PyObjC not available")
+class TestMenuHelpers(unittest.TestCase):
+    def test_ellipsize(self):
+        self.assertEqual(mv.ellipsize("короткий", 20), "короткий")
+        self.assertEqual(mv.ellipsize("очень длинный текст расшифровки", 10), "очень дли…")
+
+    def test_subtitle_and_symbol(self):
+        it = FakeNSItem()
+        mv.set_subtitle(it, "сегодня 16:40")
+        self.assertEqual(it.calls["setSubtitle_"], ("сегодня 16:40",))
+        mv.set_symbol(it, "phone")
+        self.assertIn("setImage_", it.calls)
+
+    def test_call_item_shows_f_key(self):
+        it = FakeNSItem()
+        mv.decorate_call_item(it, "f13", active=False)
+        self.assertEqual(it.calls["setKeyEquivalent_"], (chr(0xF710),))
+        self.assertEqual(it.calls["setKeyEquivalentModifierMask_"], (0,))
+        it = FakeNSItem()
+        mv.decorate_call_item(it, "right_option", active=True)
+        self.assertNotIn("setKeyEquivalent_", it.calls)
+
+    def test_alternate(self):
+        primary, alt = FakeNSItem(), FakeNSItem()
+        mv.make_alternate(primary, alt)
+        self.assertEqual(primary.calls["setKeyEquivalentModifierMask_"], (0,))
+        self.assertEqual(alt.calls["setAlternate_"], (True,))
+
+    def test_section_header_swaps_item(self):
+        item = FakeRumpsItem()
+        mv.make_section_header(item, "Последние звонки")
+        self.assertNotIsInstance(item._menuitem, FakeNSItem)

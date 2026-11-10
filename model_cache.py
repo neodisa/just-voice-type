@@ -40,3 +40,21 @@ def is_cached(repo: str, cache: Optional[str] = None) -> bool:
         if any(f.endswith(WEIGHT_EXT) for f in files):
             return True
     return False
+
+
+def downloaded_bytes(repo: str, cache: Optional[str] = None) -> int:
+    """Сколько байт модели уже лежит в кэше (вместе с недокачанными
+    *.incomplete) — для процента скачивания в окне настроек."""
+    blobs = os.path.join(repo_dir(repo, cache), "blobs")
+    total = 0
+    try:
+        with os.scandir(blobs) as it:
+            for e in it:
+                try:
+                    if e.is_file(follow_symlinks=False):
+                        total += e.stat(follow_symlinks=False).st_size
+                except OSError:
+                    pass
+    except OSError:
+        return 0
+    return total

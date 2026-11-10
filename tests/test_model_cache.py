@@ -65,3 +65,16 @@ class TestModelCache(unittest.TestCase):
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+
+
+class TestDownloadedBytes(unittest.TestCase):
+    def test_counts_blobs_including_incomplete(self):
+        with tempfile.TemporaryDirectory() as cache:
+            self.assertEqual(model_cache.downloaded_bytes(REPO, cache), 0)
+            blobs = os.path.join(model_cache.repo_dir(REPO, cache), "blobs")
+            os.makedirs(blobs)
+            with open(os.path.join(blobs, "a"), "wb") as f:
+                f.write(b"x" * 10)
+            with open(os.path.join(blobs, "b.incomplete"), "wb") as f:
+                f.write(b"x" * 5)
+            self.assertEqual(model_cache.downloaded_bytes(REPO, cache), 15)

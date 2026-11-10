@@ -167,3 +167,52 @@ def set_status_line(ns_menu_item, st: "menubar_icon.Status") -> None:
     """Строка статуса сверху меню: текст + цветная точка."""
     ns_menu_item.setTitle_(st.text)
     ns_menu_item.setImage_(dot_image(st.dot))
+
+
+# ── помощники для пунктов меню ───────────────────────────────────────────
+MENU_SYMBOL_PT = 13.0
+_NSF1 = 0xF704  # NSF1FunctionKey; F13 = 0xF710
+
+
+def ellipsize(text: str, n: int) -> str:
+    return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+
+
+def set_subtitle(ns_item, text: str) -> None:
+    """Вторая строка пункта меню (NSMenuItem.subtitle, macOS 14+)."""
+    try:
+        ns_item.setSubtitle_(text)
+    except AttributeError:
+        pass
+
+
+def set_symbol(ns_item, name: str, color=None) -> None:
+    img = _symbol(name, MENU_SYMBOL_PT, color)
+    if img is not None:
+        img.setTemplate_(color is None)
+        ns_item.setImage_(img)
+
+
+def decorate_call_item(ns_item, call_hotkey: str, active: bool) -> None:
+    """Иконка пункта звонка и подсказка клавиши, если это F13–F19."""
+    set_symbol(ns_item, "stop.circle" if active else "phone", _rgb(REC_RGB) if active else None)
+    if call_hotkey[:1] == "f" and call_hotkey[1:].isdigit():
+        n = int(call_hotkey[1:])
+        if 1 <= n <= 35:
+            ns_item.setKeyEquivalent_(chr(_NSF1 + n - 1))
+            ns_item.setKeyEquivalentModifierMask_(0)
+
+
+def make_alternate(primary_ns, alt_ns) -> None:
+    """alt_ns показывается вместо primary_ns, пока зажат ⌥."""
+    primary_ns.setKeyEquivalentModifierMask_(0)
+    alt_ns.setKeyEquivalentModifierMask_(AppKit.NSEventModifierFlagOption)
+    alt_ns.setAlternate_(True)
+
+
+def make_section_header(rumps_item, title: str) -> None:
+    """Заменить NSMenuItem у rumps-пункта на заголовок секции (macOS 14+)."""
+    try:
+        rumps_item._menuitem = AppKit.NSMenuItem.sectionHeaderWithTitle_(title)
+    except AttributeError:
+        pass
