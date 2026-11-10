@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Render Just Voice Type sounds</title>
+<pre id="log">Rendering…</pre>
+<script type="module">
+// Renders every (theme, event) of plan.json with cuelume's own Web Audio
+// engine in an OfflineAudioContext and posts raw float32 PCM back to
+// scripts/render_sounds.py, which trims, levels and writes the WAVs.
+// Same path as play(): renderRecipe on a fresh context, no `vary`, so a cue
+// renders the same take every time apart from the noise start.
+const log = (t) => (document.getElementById("log").textContent += "\n" + t);
+const plan = await (await fetch("plan.json")).json();
+const base = plan.cuelume;
+const { THEMES } = await import(`${base}/sounds/themes.js`);
+const { shapeFor } = await import(`${base}/sounds/context.js`);
+const { renderRecipe } = await import(`${base}/audio/render.js`);
+const { createOutput } = await import(`${base}/audio/output.js`);
+
+const SR = plan.sample_rate, SECONDS = 3;
+for (const job of plan.jobs) {
+  const ctx = new OfflineAudioContext(2, SR * SECONDS, SR);
+  let bus;
+  const getBus = () => (bus ??= createOutput(ctx));
+  const recipe = { ...THEMES[job.theme][job.cue], vary: undefined };
+  const played = {
+    recipe, volume: 1, emphasis: job.emphasis,
+    shape: shapeFor(job.cue, {}, job.emphasis, Infinity), step: 0,
+  };
+  renderRecipe(ctx, getBus, new Map(), job.cue, played, "both");
+  const buf = await ctx.startRendering();
+  const l = buf.getChannelData(0), r = buf.getChannelData(1);
+  const pcm = new Float32Array(l.length * 2);
+  for (let i = 0; i < l.length; i++) { pcm[2 * i] = l[i]; pcm[2 * i + 1] = r[i]; }
+  const q = new URLSearchParams({ theme: job.theme, event: job.event });
+  const res = await fetch(`save?${q}`, { method: "POST", body: pcm.buffer });
+  log(`${job.theme}/${job.event}: ${res.status}`);
+}
+await fetch("done", { method: "POST" });
+log("done");
+</script>
