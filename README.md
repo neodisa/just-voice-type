@@ -7,23 +7,42 @@ Hold Right Option and speak, or **double-tap** it for hands-free — your text i
 
 ## Features
 
-- 🎙 **Menubar icon** with live status (idle, REC, processing, paused)
-- ⌨️ **Push-to-talk** on any system key — switch it from the **Hotkey** menu (Right Option, Left Option, Fn, Cmd, Ctrl, Shift, F13–F19), applied instantly, no restart.
+- 🎙 **Menubar icon** with live status — monochrome SF Symbols that follow the light/dark menu bar, live red level bars while recording, a red phone + timer during a call; fixed width, so neighbouring icons don't jump. The first menu line spells out the state (*Ready · hold right ⌥*, *Recording · 0:07*, *Downloading model…*).
+- 🧭 **Short menu, full settings window** — the menu keeps what you use while working: **Record call**, your **three latest calls** (click copies the transcript, hold ⌥ to open the file), **Copy last dictation**, **Dictation history**, **Add term…**, pause, **Settings… ⌘,**. Everything you set once lives in the [Settings window](#settings-window).
+- ⌨️ **Push-to-talk** on any system key — switch it in **Settings → General** (Right Option, Left Option, Fn, Cmd, Ctrl, Shift, F13–F19), applied instantly, no restart.
 - 🙌 **Hands-free mode** — **double-tap** the hotkey and it keeps listening with the key released; **tap once** to stop. No need to hold the key through a long monologue. The menubar shows `🔴∞` while it's on. (Auto-stops after 5 min as a safety net.)
 - 🌊 **Streaming transcription** — while you're still talking, long dictations are transcribed in the background in ~20s chunks, sliced at pauses so words aren't cut. By the time you stop there's almost nothing left to wait for — no more minute-long "frozen" transcribe on long recordings, and no runaway Whisper repetition loops.
-- 🧠 **On-device ASR** — default `parakeet-tdt-0.6b-v3` (NVIDIA Parakeet via MLX): ~10× faster than Whisper, multilingual incl. RU/UK/EN, auto-detects language. Whisper `large-v3` is one menu click away when you want maximum accuracy. Falls back to `faster-whisper` on CPU. Models warm up in the background at startup, so the first dictation is as fast as the rest.
-- 🔀 **Switch models from the menu** — pick `parakeet-v3` (fastest, default), `large-v3` (most accurate), `large-v3-turbo` (faster decode, weaker on Russian/Ukrainian), `medium`, or `small` on the fly, no restart. Your choice persists across restarts.
-- 🌐 **Pick the language from the menu** — your working ("favorite") languages plus **Auto** sit at the top; choose one to make it active. **All languages…** lists the full Whisper set (~99) where you check which languages to keep as favorites.
-- 🪄 **Smart modes** — pick **Raw** (verbatim), **Clean** (strip filler & fix punctuation), or **Prompt** (restructure your dictation into a clear instruction for an AI) from the **Smart** menu. Runs a small on-device LLM (`Qwen2.5-1.5B-Instruct-4bit` via `mlx_lm`) — still no cloud. Add domain terms via **Edit vocabulary…** so misheard names/jargon get fixed and bias Whisper itself.
+- 🧠 **On-device ASR** — default `parakeet-tdt-0.6b-v3` (NVIDIA Parakeet via MLX): ~10× faster than Whisper, multilingual incl. RU/UK/EN, auto-detects language. Whisper `large-v3` is one click away in **Settings → Recognition** when you want maximum accuracy. Falls back to `faster-whisper` on CPU. Models warm up in the background at startup, so the first dictation is as fast as the rest.
+- 🔀 **Switch models in Settings → Recognition** — pick `parakeet-v3` (fastest, default), `large-v3` (most accurate), `large-v3-turbo` (faster decode, weaker on Russian/Ukrainian), `medium`, or `small` on the fly, no restart. Your choice persists across restarts.
+- 🌐 **Pick the speech language in Settings → Recognition** — **Auto** plus your favourite languages as quick buttons; **More languages…** opens a searchable list of the full Whisper set (~99) where you check favourites.
+- 🪄 **Smart modes** — pick **Raw** (verbatim), **Clean** (strip filler & fix punctuation), or **Prompt** (restructure your dictation into a clear instruction for an AI) in **Settings → Recognition → Text processing**. Runs a small on-device LLM (`Qwen2.5-1.5B-Instruct-4bit` via `mlx_lm`) — still no cloud. Add domain terms as **Recognition hints** so misheard names/jargon get fixed and bias Whisper itself.
 - ⚡ **Live typing** — text appears in the focused field while you talk, **sentence by sentence** (Parakeet + Raw). Every ~0.4 s the last seconds of audio are re-transcribed with a full model pass; a sentence is typed once its end (. ? !) is the same in two passes and confirmed by the next word or a pause, using the freshest pass — so each sentence is recognized with its full context and you don't get «. и» / «, Но» glitches at the seams (typed text can't be corrected in another app's field). A very long sentence without a period is typed up to its last confirmed comma. Typed as keystrokes, so it works in Electron apps and terminals; the held hotkey's modifier is not applied to typed text. If you switch windows mid-dictation, typing stops and the full text is in **Copy last text**. Toggle: **Smart → Печатать по ходу речи**. Off = the whole text is inserted at the end, as before.
-- 🔤 **Terms / replacements** — a `heard → wanted` map in `config.json` rewrites terms in the text. Add one from the menu with **Добавить термин…** (`фигма = Figma`, `хавар = ховер`) or edit the file (**Edit replacements…**). Declined forms of a dictionary-form key are matched too: `фигма = Figma` also fixes «в фигме», «фигму»; `хавар = ховер` turns «хавару» into «ховеру». A key that's already an inflected form (e.g. `пройде`) only matches exactly, so real words aren't touched. Applied after transcription (and after any Smart polish), also to live typing — no extra latency. Edits apply on your next dictation.
-- 📞 **Call Mode** — a second, independent recording mode for calls: captures both sides (your mic + the call's system audio — **automatically on macOS 14.4+ via a Core Audio tap**, no loopback driver needed; virtual-loopback fallback for older macOS), transcribes continuously in the background, and on stop saves a timestamped transcript (`[MM:SS] text`) to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste into any AI for analysis. Survives headphone / audio-routing changes mid-call. Independent Start/Stop hotkey (**Call Hotkey**, default `F13`) and menu item; recording one mode blocks the other. See [Call Mode](#call-mode) below. No speaker labels, no live transcript view, no raw audio saved.
+- 🔤 **Terms / replacements** — a `heard → wanted` map in `config.json` rewrites terms in the text. Add one from the menu with **Add term…** (`фигма = Figma`, `хавар = ховер`) or manage the whole table in **Settings → Terms** (search, inline edit, delete with undo). Declined forms of a dictionary-form key are matched too: `фигма = Figma` also fixes «в фигме», «фигму»; `хавар = ховер` turns «хавару» into «ховеру». A key that's already an inflected form (e.g. `пройде`) only matches exactly, so real words aren't touched. Applied after transcription (and after any Smart polish), also to live typing — no extra latency. Edits apply on your next dictation.
+- 📞 **Call Mode** — a second, independent recording mode for calls: captures both sides (your mic + the call's system audio — **automatically on macOS 14.4+ via a Core Audio tap**, no loopback driver needed; virtual-loopback fallback for older macOS), transcribes continuously in the background, and on stop saves a timestamped transcript (`[MM:SS] text`) to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste into any AI for analysis. Survives headphone / audio-routing changes mid-call. Independent Start/Stop hotkey (**Settings → Calls → Call key**, default `F13`) and the **Record call** menu item; recording one mode blocks the other. See [Call Mode](#call-mode) below. No speaker labels, no live transcript view, no raw audio saved.
 - 💾 **Settings persist** across restarts (favorite languages, active language, hotkey, smart mode, vocabulary, model, insertion mode, replacements, call hotkey, call device, auto system-audio capture, live typing) in `~/.config/just-voice-type/config.json`.
 - 📋 **Auto-paste** of recognized text via clipboard + `Cmd+V`, with original clipboard restored
-- 📝 **Insertion mode** — by default text is pasted via clipboard + Cmd+V (and the previous clipboard is restored). Switch to **Insert via Accessibility** from the menu (under **Smart → Insert via Accessibility**) to type straight into the focused field. In this mode the dictation **lands in the field you started in** even if you switch windows (it inserts into that app in the background), and the **clipboard is never clobbered** — on any fallback the previous clipboard is restored, and every dictation is always kept in the History menu. If the original field can't accept a background insert, the text is kept in history and you get a notification (no window is yanked to the front).
+- 📝 **Insertion mode** — by default text is pasted via clipboard + Cmd+V (and the previous clipboard is restored). Switch **Settings → General → Text insertion** to **Directly into the field** to type straight into the focused field. In this mode the dictation **lands in the field you started in** even if you switch windows (it inserts into that app in the background), and the **clipboard is never clobbered** — on any fallback the previous clipboard is restored, and every dictation is always kept in the History menu. If the original field can't accept a background insert, the text is kept in history and you get a notification (no window is yanked to the front).
 - 🕘 **History menu** — the last 15 dictations, persisted across restarts (50 kept on disk in `~/.config/just-voice-type/history.json`); click any entry to copy it back to the clipboard
 - 🔔 macOS sounds on start/stop, optional notifications
 - 🚀 **Autostart** as a LaunchAgent — the icon shows up right after login
+
+## Settings window
+
+**Settings… (⌘,)** opens a native SwiftUI window (dark, the *console* look) with five sections:
+
+- **General** — dictation key, *type as you speak*, text insertion, interface language (follows macOS, or pick Русский / English), open at login.
+- **Recognition** — model list with sizes and download/loading state, speech language, text processing mode, recognition hints.
+- **Calls** — recent calls with copy / open / search, call key, automatic capture or a manual device.
+- **Terms** — the `heard → written` table with search, inline editing and undo.
+- **About** — version, update check against the latest GitHub release, links, author.
+
+Changes apply immediately, there is no Save button. The window is a small helper process (`JustVoiceTypeSettings`) that only draws; all logic stays in Python and talks to it over JSON lines (see `native/settings/PROTOCOL.md`). When running from source, build it once:
+
+```bash
+./scripts/build_settings.sh
+```
+
+Without it, **Settings…** shows a notification with this command. `JustVoiceTypeSettings --demo` opens the window on sample data, without the app.
 
 ## Gestures
 
@@ -39,7 +58,7 @@ A quick single tap that *isn't* followed by a second tap is treated as a normal 
 
 ## Smart modes
 
-The **Smart** menu controls a local LLM pass that runs *after* Whisper, on the recognized text:
+**Settings → Recognition → Text processing** controls a local LLM pass that runs *after* Whisper, on the recognized text:
 
 - **Raw** *(default)* — no post-processing; you get Whisper's verbatim output instantly. Use it for names, passwords, or exact quotes. This is the default so updating users keep the old behavior and nothing downloads until you opt in.
 - **Clean** — removes filler ("uh", "you know"), collapses self-corrections, fixes punctuation and capitalization. Words and meaning are preserved.
@@ -50,7 +69,7 @@ Notes:
 - The LLM (`Qwen2.5-1.5B-Instruct-4bit`, ~1 GB) **downloads and warms up in the background** as soon as Clean/Prompt is selected (or at startup if it's already your mode). Raw never loads it.
 - It runs **fully on-device** via `mlx_lm` — no cloud, no API keys, consistent with the rest of the app.
 - Polishing **never blocks paste**: on any error or timeout it falls back to the raw Whisper text.
-- **Edit vocabulary…** opens `config.json`; add your recurring terms/names to the `vocabulary` list. They feed both Whisper's `initial_prompt` (so it mishears them less) and the LLM (so it corrects them from context).
+- **Recognition hints** (Settings → Recognition) hold your recurring terms/names (the `vocabulary` list in `config.json`). They feed both Whisper's `initial_prompt` (so it mishears them less) and the LLM (so it corrects them from context).
 
 > **Parakeet note:** Parakeet auto-detects the language and doesn't take an
 > `initial_prompt`, so the vocabulary list doesn't bias it the way it biases
@@ -67,7 +86,7 @@ A second, independent recording mode for calls (Teams, WhatsApp, Zoom, anything)
 - Recovers on its own when the audio route changes mid-call (headphones plugged in, Bluetooth switching); a `[⚠ пропуск записи ~Ns]` marker shows any short gap.
 - Runs for as long as the call lasts (up to a 4-hour safety cap), transcribing in the background the same way long dictations do.
 - On stop, saves the full transcript to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste it into any AI tool for analysis. No auto-paste into a field.
-- Starts/stops via the **Start Call Recording** menu item (turns into **■ Stop Call Recording** while active), or a dedicated toggle hotkey (**Call Hotkey** menu, default `F13`) — independent of the dictation hotkey. Starting one mode blocks the other.
+- Starts/stops via the **Record call** menu item (turns into **Stop call** while active), or a dedicated toggle hotkey (**Settings → Calls → Call key**, default `F13`) — independent of the dictation hotkey. Starting one mode blocks the other.
 - Past calls are listed under **Calls** — click one to copy its transcript back to the clipboard, or use **Open Calls folder…**.
 - Recording a call may require the other party's consent depending on your jurisdiction — check your local law before you start.
 - With **automatic system-audio capture** on (see below), a call recording captures **everything playing on your Mac** during the call — not just the call app. Mute or quit other audio sources if you don't want them in the transcript.
@@ -76,14 +95,14 @@ Call Mode does **not** do speaker labels, a live growing transcript, or save the
 
 ### Setup
 
-**Automatic (macOS 14.4+, default) — no setup.** Call Mode captures the whole system output via a Core Audio process tap and mixes in your microphone, so you get both sides with **no loopback driver and no Audio MIDI Setup**. The first time you start a call, macOS shows a one-time **"Voice Type wants to record this computer's audio"** prompt — allow it. Toggle this off anytime with the **Авто-захват системного звука** menu item (then it uses the manual path below).
+**Automatic (macOS 14.4+, default) — no setup.** Call Mode captures the whole system output via a Core Audio process tap and mixes in your microphone, so you get both sides with **no loopback driver and no Audio MIDI Setup**. The first time you start a call, macOS shows a one-time **"Voice Type wants to record this computer's audio"** prompt — allow it. Toggle this off anytime in **Settings → Calls** (*Capture the other side automatically*) (then it uses the manual path below).
 
 > Packaging note: the tap is read by a small Swift helper, `WhisperFlowSysCap`. Build it from source with `scripts/build_syscap.sh` (needs Xcode Command Line Tools) — by default into `native/WhisperFlowSysCap` (used when running from source), or pass `".../Voice Type.app/Contents/MacOS/WhisperFlowSysCap"` to install it into the app bundle. The bundle's `Contents/Info.plist` must carry an `NSAudioCaptureUsageDescription` string. Without the helper or that key the app silently falls back to the manual path.
 
 **Manual fallback (older macOS, or when auto-capture is off).** Capturing the other side then requires a virtual audio loopback device — a one-time setup:
 
 1. Install a virtual audio driver if you don't already have one — e.g. [VB-Cable](https://vb-audio.com/Cable/) or [BlackHole](https://github.com/ExistentialAudio/BlackHole) (free).
-2. Open **Audio MIDI Setup** (Spotlight → "Audio MIDI Setup") and create an **Aggregate Device** combining your Mac's microphone and the virtual cable (e.g. "MacBook Pro Microphone" + "VB-Cable"). This becomes your input — select it in Just Voice Type's **Call Device** menu.
+2. Open **Audio MIDI Setup** (Spotlight → "Audio MIDI Setup") and create an **Aggregate Device** combining your Mac's microphone and the virtual cable (e.g. "MacBook Pro Microphone" + "VB-Cable"). This becomes your input — select it in **Settings → Calls → Manual device**.
 3. Create a **Multi-Output Device** combining your speakers/headphones and the same virtual cable, so you keep hearing the call while it's captured.
 4. Route the call app's own audio output to that Multi-Output Device — preferred over changing the whole Mac's system output, since it only captures the call itself:
    - **Teams:** Settings → Devices → Speaker (or, mid-call, the ⋯ menu → Show Device Settings).
@@ -174,7 +193,7 @@ tail -f voice_type.err.log
 
 ## Alternative models
 
-The fastest way is the **Model** submenu in the 🎙 menubar icon — switch models live, no restart:
+The fastest way is **Settings → Recognition → Model** — switch models live, no restart:
 
 | Model | Notes |
 |---|---|
@@ -184,7 +203,7 @@ The fastest way is the **Model** submenu in the 🎙 menubar icon — switch mod
 | `medium` | Balanced. |
 | `small` | Fastest, less accurate (weak for non-English). |
 
-The menu choice is saved to `config.json` and survives restarts. A freshly picked model downloads from HuggingFace and warms up in the background; after that it's served from cache (`~/.cache/huggingface/`) and switching is instant.
+The choice is saved to `config.json` and survives restarts. A freshly picked model downloads from HuggingFace and warms up in the background; after that it's served from cache (`~/.cache/huggingface/`) and switching is instant.
 
 You can also pin a model at launch via the CLI:
 
