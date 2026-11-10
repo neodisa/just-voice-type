@@ -1285,6 +1285,11 @@ def polish_text_safe(polisher, text, mode, language, vocabulary):
 
 def run_app(args):
     rumps = _require("rumps")
+    # rumps.App.run() иначе регистрирует процесс в устаревшем
+    # NSUserNotificationCenter, и usernoted отказывает UNUserNotificationCenter
+    # («You can't mix modern clients with legacy clients»). Уведомления rumps
+    # нам не нужны — все идут через notifier.py.
+    rumps.notifications._ENABLED = False
     keyboard = _require("pynput.keyboard", "pynput").keyboard  # type: ignore
 
     # err.log однажды разросся до 145 МБ из-за ошибки в watchdog — держим
