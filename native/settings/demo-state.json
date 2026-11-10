@@ -18,6 +18,8 @@
   "general.live.caption": "Текст появляется по предложениям, пока вы говорите.",
   "general.insert": "Вставка текста",
   "general.insert.caption": "Через буфер работает везде. Напрямую не трогает буфер обмена, но работает не во всех приложениях.",
+  "general.sounds": "Звуки",
+  "general.sounds.caption": "Старт и конец записи, готовый текст, ошибка. Выбранный стиль сразу проигрывается.",
   "general.group.app": "Приложение",
   "general.ui_language": "Язык интерфейса",
   "general.login": "Запускать при входе в систему",
@@ -65,6 +67,8 @@
   "calls.unsupported.howto": "Как настроить",
   "calls.hotkey": "Клавиша звонка",
   "calls.hotkey.caption": "Первое нажатие начинает запись, второе останавливает.",
+  "calls.stealth": "Скрытая запись",
+  "calls.stealth.caption": "Иконка не меняется во время звонка, запись видно только в меню. Звуки звонка и уведомление о расшифровке выключены.",
   "calls.auto": "Записывать собеседника автоматически",
   "calls.auto.caption": "Системный звук без виртуального драйвера, macOS 14.4 и новее. Записывается всё, что играет на Mac.",
   "calls.device": "Устройство вручную",
@@ -249,6 +253,61 @@
      {
       "value": "ax",
       "label": "Напрямую в поле",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     }
+    ]
+   },
+   "sounds": {
+    "value": "default",
+    "caption": "Старт и конец записи, готовый текст, ошибка. Выбранный стиль сразу проигрывается.",
+    "disabled_reason": null,
+    "options": [
+     {
+      "value": "default",
+      "label": "Стекло и молоточки",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "mech",
+      "label": "Механика",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "bubble",
+      "label": "Пузырьки",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "press",
+      "label": "Клавиши",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "macos",
+      "label": "Системные macOS",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": true
+     },
+     {
+      "value": "off",
+      "label": "Без звуков",
       "glyph": null,
       "note": null,
       "disabled": false,
@@ -768,6 +827,11 @@
       "separator_before": false
      }
     ]
+   },
+   "stealth": {
+    "value": false,
+    "disabled_reason": null,
+    "link": null
    },
    "auto_capture": {
     "value": true,

@@ -1,4 +1,4 @@
-// «Основное»: dictation key, live typing, insert mode, UI language, login item.
+// «Основное»: dictation key, live typing, insert mode, sounds, UI language, login item.
 
 import SwiftUI
 
@@ -20,6 +20,8 @@ struct GeneralSection: View {
                           key: "live_typing", toggle: g.liveTyping)
                 RowSep()
                 PickerRow(label: store.s("general.insert"), key: "insert_mode", picker: g.insertMode)
+                RowSep()
+                PickerRow(label: store.s("general.sounds"), key: "sound_theme", picker: g.sounds)
             }
 
             GroupHeader(store.s("general.group.app"))

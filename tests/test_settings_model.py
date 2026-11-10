@@ -5,6 +5,7 @@ import i18n
 import menubar_icon
 import model_catalog
 import settings_model as sm
+import sounds
 
 PARAKEET = "mlx-community/parakeet-tdt-0.6b-v3"
 LARGE = "mlx-community/whisper-large-v3-mlx"
@@ -109,6 +110,16 @@ class TestGeneral(Base):
         self.assertEqual(p["options"][0]["note"], "сейчас English")
         self.assertTrue(p["options"][1]["separator_before"])
 
+    def test_sounds_picker_lists_every_theme(self):
+        p = build(view(sound_theme="mech"))["data"]["general"]["sounds"]
+        self.assertEqual(p["value"], "mech")
+        self.assertEqual([o["value"] for o in p["options"]], list(sounds.THEMES))
+        opt = {o["value"]: o for o in p["options"]}
+        self.assertEqual(opt["off"]["label"], "Без звуков")
+        self.assertTrue(opt["macos"]["separator_before"])
+        self.assertIsNone(p["disabled_reason"])
+        self.assertTrue(p["caption"])
+
 
 class TestRecognition(Base):
     def models(self, **kw):
@@ -212,6 +223,11 @@ class TestCalls(Base):
         self.assertIsNotNone(c["auto_capture"]["disabled_reason"])
         self.assertIsNone(c["device"]["disabled_reason"])
 
+    def test_stealth_toggle(self):
+        self.assertFalse(self.calls()["stealth"]["value"])
+        t = self.calls(call_stealth=True)["stealth"]
+        self.assertEqual(t, {"value": True, "disabled_reason": None, "link": None})
+
     def test_call_hotkey_marks_dictation_key(self):
         p = self.calls(hotkey="right_option", call_hotkey="f13")["call_hotkey"]
         opt = {o["value"]: o for o in p["options"]}
@@ -278,6 +294,13 @@ class TestValidateSet(Base):
         self.assertIsNone(self.ok("active_language", None))
         self.assertEqual(self.ok("active_language", "de"), "de")
         self.bad("active_language", "xx")
+
+    def test_sounds_and_stealth(self):
+        self.assertEqual(self.ok("sound_theme", "bubble"), "bubble")
+        self.ok("sound_theme", "off")
+        self.bad("sound_theme", "kazoo")
+        self.assertIs(self.ok("call_stealth", True), True)
+        self.bad("call_stealth", "yes")
 
     def test_device(self):
         self.ok("call_device", "BlackHole 2ch")

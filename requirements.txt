@@ -5,3 +5,4 @@ mlx-whisper>=0.4.0
 mlx-lm>=0.31.0
 parakeet-mlx>=0.3.0
 rumps>=0.4.0
+pyobjc-framework-UserNotifications>=10.0

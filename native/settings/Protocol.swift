@@ -166,12 +166,13 @@ struct GeneralData: Decodable, Equatable {
     let hotkey: PickerModel
     let liveTyping: ToggleModel
     let insertMode: PickerModel
+    let sounds: PickerModel
     let uiLanguage: PickerModel
     let launchAtLogin: ToggleModel
     let warning: String?
 
     enum CodingKeys: String, CodingKey {
-        case hotkey, warning
+        case hotkey, warning, sounds
         case liveTyping = "live_typing"
         case insertMode = "insert_mode"
         case uiLanguage = "ui_language"
@@ -232,11 +233,12 @@ struct CallsData: Decodable, Equatable {
     let items: [CallItem]
     let autoSupported: Bool
     let callHotkey: PickerModel
+    let stealth: ToggleModel
     let autoCapture: ToggleModel
     let device: PickerModel
 
     enum CodingKeys: String, CodingKey {
-        case count, live, items, device
+        case count, live, items, device, stealth
         case autoSupported = "auto_supported"
         case callHotkey = "call_hotkey"
         case autoCapture = "auto_capture"

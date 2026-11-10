@@ -49,11 +49,19 @@ DEFAULTS = {
     # Язык интерфейса: "system" — по языку системы (см. i18n.resolve),
     # "ru" / "en" — выбран вручную в настройках.
     "ui_language": "system",
+    # Стиль звуков: стили cuelume (default/mech/bubble/press), "macos" —
+    # системные Tink/Pop/Ping/Basso, "off" — тишина. См. sounds.py.
+    "sound_theme": "default",
+    # Скрытая запись звонков: иконка в строке меню не показывает звонок,
+    # звуки звонка и уведомление о расшифровке молчат. Статус — только в меню.
+    "call_stealth": False,
 }
 
 SMART_MODES = ("raw", "clean", "prompt")
 INSERT_MODES = ("paste", "ax")
 UI_LANGUAGES = ("system", "ru", "en")
+# совпадает с sounds.THEMES (тест следит), здесь — чтобы config не тянул sounds
+SOUND_THEMES = ("default", "mech", "bubble", "press", "macos", "off")
 
 
 def _defaults_copy() -> "dict[str, Any]":
@@ -71,6 +79,8 @@ def _defaults_copy() -> "dict[str, Any]":
         "auto_system_audio": DEFAULTS["auto_system_audio"],
         "live_typing": DEFAULTS["live_typing"],
         "ui_language": DEFAULTS["ui_language"],
+        "sound_theme": DEFAULTS["sound_theme"],
+        "call_stealth": DEFAULTS["call_stealth"],
     }
 
 
@@ -157,6 +167,12 @@ def _validate(raw: Any) -> "dict[str, Any]":
 
     ui_lang = raw.get("ui_language")
     cfg["ui_language"] = ui_lang if ui_lang in UI_LANGUAGES else DEFAULTS["ui_language"]
+
+    theme = raw.get("sound_theme")
+    cfg["sound_theme"] = theme if theme in SOUND_THEMES else DEFAULTS["sound_theme"]
+
+    stealth = raw.get("call_stealth")
+    cfg["call_stealth"] = stealth if isinstance(stealth, bool) else DEFAULTS["call_stealth"]
 
     # звонок и диктовка не могут висеть на одной и той же клавише
     if cfg["call_hotkey"] == cfg["hotkey"]:

@@ -42,10 +42,10 @@ Events and cues:
 - Files: `sounds/<theme>/<event>.wav` for themes default, mech, bubble, press,
   plus `sounds/LICENSE-cuelume.txt`. Rendered once with cuelume's own engine in
   a browser OfflineAudioContext, then trimmed and loudness-matched to the old
-  macOS sounds (`scripts/render_sounds.html` + `scripts/finish_sounds.py`).
+  macOS sounds (`scripts/render_sounds.py` + `scripts/render_sounds.html`).
 - Setting `sound_theme`: `default` | `mech` | `bubble` | `press` | `macos`
   (Tink/Pop/Ping/Basso as before) | `off`. Default `default`. Settings →
-  General, picker «Звуки»; choosing a style plays its dictation-start sound.
+  General, picker «Звуки»; choosing a style plays its dictation-start and done sounds.
 - Playback stays `afplay`, non-blocking.
 
 ## 3. Clickable call notification

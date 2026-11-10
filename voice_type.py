@@ -5,7 +5,7 @@ voice_type.py — Just Voice Type: local push-to-talk dictation for macOS (Apple
 UI:
   • Menubar icon (rumps): 🎙 idle, 🔴 REC (blinks + volume bars),
     ⏳ transcribing, 🚫 paused.
-  • macOS beeps on record start/stop.
+  • Sounds on record start/stop and when text is in (sounds.py).
   • macOS notification with recognized text (--notify).
   • Menu: Pause, Copy last text, Quit.
 
@@ -45,9 +45,11 @@ import menubar_icon
 import mic_recovery
 import model_cache
 import model_catalog
+import notifier
 import polish
 import settings_bridge
 import settings_model
+import sounds
 import streaming
 import system_audio
 import terms
@@ -60,10 +62,6 @@ RELEASES_URL = "https://github.com/neodisa/just-voice-type/releases"
 
 SAMPLE_RATE = 16_000
 
-SOUND_START = "/System/Library/Sounds/Tink.aiff"
-SOUND_STOP = "/System/Library/Sounds/Pop.aiff"
-SOUND_ERROR = "/System/Library/Sounds/Basso.aiff"
-SOUND_DONE = "/System/Library/Sounds/Ping.aiff"  # распознано и в буфере (простой одиночный сигнал)
 
 # известные галлюцинации Whisper на тишине/шуме
 # (модель обучена на YouTube — часто выдаёт фразы из концовок видео)
@@ -170,16 +168,6 @@ def log(msg: str, err: bool = False) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", file=stream, flush=True)
 
 
-def play_sound(path: str) -> None:
-    if not os.path.exists(path):
-        return
-    subprocess.Popen(
-        ["afplay", "-v", "0.5", path],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-
 def frontmost_app_pid():
     """PID of the current frontmost application, or None. AppKit is already
     loaded in-process by rumps, so this is a safe, instant read."""
@@ -192,17 +180,13 @@ def frontmost_app_pid():
         return None
 
 
-def notify(title: str, message: str) -> None:
-    safe = message.replace('"', '\\"').replace("\n", " ")
-    safe_title = title.replace('"', '\\"')
-    subprocess.run(
-        [
-            "osascript",
-            "-e",
-            f'display notification "{safe}" with title "{safe_title}"',
-        ],
-        check=False,
-    )
+# UNUserNotificationCenter внутри Voice Type.app (клик по уведомлению о
+# звонке показывает файл), osascript — вне бандла; см. notifier.py
+_notifier = notifier.Notifier(log=log)
+
+
+def notify(title: str, message: str, reveal: Optional[str] = None) -> None:
+    _notifier.notify(title, message, reveal=reveal)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1429,6 +1413,12 @@ def run_app(args):
     )
     current_model["value"] = args.model or cfg["model"] or default_model
     smart_mode = {"value": cfg["smart_mode"]}
+    sound_theme = {"value": cfg["sound_theme"]}
+    call_stealth = {"value": cfg["call_stealth"]}
+
+    def play_event(event):
+        """Звук события в выбранном стиле; при скрытой записи звонок молчит."""
+        sounds.play(event, sound_theme["value"], quiet_calls=call_stealth["value"])
     insert_mode = {"value": cfg["insert_mode"]}
     # печать по ходу речи (см. live_typing) и её подпроцесс-печатальщик
     live_typing_on = {"value": cfg["live_typing"]}
@@ -1566,6 +1556,19 @@ def run_app(args):
         menu_dirty["value"] = True
         return None
 
+    def apply_sound_theme(value):
+        sound_theme["value"] = value
+        config.update(sound_theme=value)
+        # послушать выбранный стиль: старт записи и готовый текст
+        sounds.play("dictation_start", value)
+        threading.Timer(0.5, sounds.play, ("done", value)).start()
+        return None
+
+    def apply_call_stealth(on):
+        call_stealth["value"] = bool(on)
+        config.update(call_stealth=call_stealth["value"])
+        return None
+
     def apply_login(on):
         app_path = login_item.app_bundle_path()
         if app_path is None:
@@ -1588,6 +1591,8 @@ def run_app(args):
         "auto_system_audio": apply_auto_sysaudio,
         "ui_language": apply_ui_language,
         "launch_at_login": apply_login,
+        "sound_theme": apply_sound_theme,
+        "call_stealth": apply_call_stealth,
     }
 
     def start_or_stop_call():
@@ -1679,6 +1684,7 @@ def run_app(args):
             live_typing=live_typing_on["value"],
             insert_mode=insert_mode["value"],
             ui_language=cfg_now["ui_language"],
+            sound_theme=sound_theme["value"],
             system_language=i18n.resolve("system", i18n.system_languages()),
             login_available=login_item.app_bundle_path() is not None,
             login_enabled=settings_ctx["login_enabled"],
@@ -1697,6 +1703,7 @@ def run_app(args):
             call_started_at=call_session["start_ts"] if call_state["value"] == "recording" else None,
             auto_supported=system_audio.is_supported(),
             auto_capture=current_auto_sysaudio["value"],
+            call_stealth=call_stealth["value"],
             call_device=current_call_device["value"],
             input_devices=settings_ctx["devices"],
             terms=dict(cfg_now["replacements"]),
@@ -1847,6 +1854,7 @@ def run_app(args):
     class VoiceTypeApp(rumps.App):
         def __init__(self):
             super().__init__("Voice Type", title="🎙", quit_button=None)
+            _notifier.start()
             import menubar_view  # AppKit — только когда есть GUI
 
             self._view_mod = menubar_view
@@ -2062,6 +2070,7 @@ def run_app(args):
                 model_name=model_catalog.display_name(model),
                 audio_dead=recovery["gave_up"],
                 hotkey=current_hotkey["value"],
+                stealth=call_stealth["value"],
             )
 
         def _on_tick(self, _):
@@ -2137,7 +2146,7 @@ def run_app(args):
                     "PortAudio hung; restart the app if the mic stops responding"
                 )
                 watchdog["stop_at"] = None
-                play_sound(SOUND_ERROR)
+                play_event("error")
                 state["value"] = "idle"
             # 3) залипшее закрытие стрима в фоне
             recs = [
@@ -2178,7 +2187,7 @@ def run_app(args):
             if reason is None or worker_busy["value"]:
                 return
             log(f"[recovery] {reason} — CoreAudio wedged, relaunching Voice Type", err=True)
-            play_sound(SOUND_ERROR)
+            play_event("error")
             notify("Voice Type", "Микрофон завис в CoreAudio — перезапускаю Voice Type")
             if not mic_recovery.relaunch(reason):
                 recovery["gave_up"] = True
@@ -2278,7 +2287,7 @@ def run_app(args):
         last_text["value"] = full
         history_items["value"] = history.add(full)
         menu_dirty["value"] = True
-        play_sound(SOUND_DONE)
+        play_event("done")
         done_until["ts"] = time.time() + 2.0
         if sess.undelivered:
             log(f"[i] live: window changed, not typed: {sess.undelivered}")
@@ -2297,7 +2306,7 @@ def run_app(args):
                 try:
                     _handle_live_job(job)
                 except Exception as e:
-                    play_sound(SOUND_ERROR)
+                    play_event("error")
                     log(f"[!] live typing: {e}", err=True)
                     live_sessions.pop(job.get("sid"), None)
                 finally:
@@ -2331,7 +2340,7 @@ def run_app(args):
                         state["value"] = "transcribing"
                 tr = _wait_transcriber()
                 if tr is None:
-                    play_sound(SOUND_ERROR)
+                    play_event("error")
                     notify("Voice Type", "Model not loaded")
                     if mode != "call":
                         session_parts.pop(sid, None)
@@ -2403,13 +2412,18 @@ def run_app(args):
                         if saved:
                             calls_items["value"] = calls.add(path, full, duration_sec)
                             menu_dirty["value"] = True
-                        play_sound(SOUND_DONE)
+                        play_event("call_ready")
                         mins = int(duration_sec) // 60
                         secs = int(duration_sec) % 60
-                        notify(
-                            "Voice Type",
-                            f"Звонок расшифрован ({mins:02d}:{secs:02d}) — скопировано в буфер",
-                        )
+                        if call_stealth["value"]:
+                            log(f"[call] transcribed ({mins:02d}:{secs:02d}), hidden mode: no notification")
+                        else:
+                            # клик по уведомлению выделяет файл звонка в Finder
+                            notify(
+                                "Voice Type",
+                                i18n.t("notify.call_done", time=f"{mins:02d}:{secs:02d}"),
+                                reveal=path if saved else None,
+                            )
                     continue
 
                 # ── диктовка: опциональный Smart-полиш + детерминированные
@@ -2439,7 +2453,7 @@ def run_app(args):
                     last_text["value"] = full
                     history_items["value"] = history.add(full)
                     menu_dirty["value"] = True
-                    play_sound(SOUND_DONE)
+                    play_event("done")
                     deliver_text(
                         full,
                         do_paste=not args.no_paste,
@@ -2454,7 +2468,7 @@ def run_app(args):
                 else:
                     print("[·] Empty.")
             except Exception as e:
-                play_sound(SOUND_ERROR)
+                play_event("error")
                 print(f"[!] {e}", file=sys.stderr)
                 if mode != "call":
                     session_parts.pop(sid, None)
@@ -2587,7 +2601,7 @@ def run_app(args):
                         log(f"[rec] start took {dt:.2f}s (stale CoreAudio?)")
                 except Exception as e:
                     log(f"[!] recorder.start failed ({time.time() - t0:.2f}s): {e}")
-                    play_sound(SOUND_ERROR)
+                    play_event("error")
                     notify("Voice Type", f"Микрофон не открылся: {e}")
                     session["active"] = False
                     state["value"] = "idle"
@@ -2651,18 +2665,20 @@ def run_app(args):
                     call_state["value"] = "recording"
                     ct.active = True
                     menu_dirty["value"] = True
-                    play_sound(SOUND_START)
+                    play_event("call_start")
+                    # при скрытой записи о начале звонка ничего не всплывает
+                    say = log if call_stealth["value"] else (lambda m: notify("Voice Type", m))
                     if kind == "manual" and reason in ("tap_denied", "tap_unsupported"):
-                        notify("Voice Type", "Авто-захват недоступен — пишу через выбранный Call Device")
+                        say("Авто-захват недоступен — пишу через выбранный Call Device")
                     elif kind == "mic":
-                        notify("Voice Type", "Пишу только микрофон (авто-захват недоступен, Call Device не выбран)")
+                        say("Пишу только микрофон (авто-захват недоступен, Call Device не выбран)")
                     dt = time.time() - t0
                     if dt > 0.5:
                         log(f"[call] start took {dt:.2f}s (stale CoreAudio?)")
                 except Exception as e:
                     log(f"[!] call start failed ({time.time() - t0:.2f}s): {e}")
                     notify("Voice Type", f"Не удалось начать запись звонка: {e}")
-                    play_sound(SOUND_ERROR)
+                    play_event("error")
                     src = call_recorder_holder["obj"]
                     if src is not None:
                         try:
@@ -2684,6 +2700,7 @@ def run_app(args):
                 call_state["value"] = "transcribing"
                 ct.active = False
                 menu_dirty["value"] = True
+                play_event("call_stop")
                 t0 = time.time()
                 # у авто-захвата две дорожки: забираем «хвосты» каждой отдельно
                 # (с метками времени), чтобы они встали в хронологию транскрипта
@@ -2902,11 +2919,11 @@ def run_app(args):
                 watchdog["vk"] = vk
                 watchdog["trusted"] = vk is not None and _key_is_down(vk) is True
                 watchdog["misses"] = 0
-                play_sound(SOUND_START)
+                play_event("dictation_start")
                 ctrl.put("start")
             elif a == gestures.FINALIZE:
                 watchdog["stop_at"] = time.time()
-                play_sound(SOUND_STOP)
+                play_event("dictation_stop")
                 ctrl.put("stop")
             elif a == gestures.ARM_TIMER:
                 _arm_pending_timer()

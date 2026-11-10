@@ -44,8 +44,9 @@ editor's key, the edit succeeded.
 |---|---|
 | `hotkey`, `call_hotkey` | an option `value` from the matching picker |
 | `insert_mode` | `"paste"` \| `"ax"` |
-| `live_typing`, `auto_system_audio`, `launch_at_login` | bool |
+| `live_typing`, `auto_system_audio`, `launch_at_login`, `call_stealth` | bool |
 | `ui_language` | `"system"` \| `"ru"` \| `"en"` |
+| `sound_theme` | `"default"` \| `"mech"` \| `"bubble"` \| `"press"` \| `"macos"` \| `"off"` (Python plays a sample) |
 | `model` | a model `id` |
 | `active_language` | `null` (Auto) or a language code |
 | `smart_mode` | `"raw"` \| `"clean"` \| `"prompt"` |
@@ -90,6 +91,7 @@ general
   hotkey           Picker
   live_typing      Toggle
   insert_mode      Picker
+  sounds           Picker           (sound theme; set key `sound_theme`)
   ui_language      Picker
   launch_at_login  Toggle
   warning          text|null        (key conflict etc., shown above the group in warn color)
@@ -105,6 +107,7 @@ calls
   items            [Call]           newest first, at most 30
   auto_supported   bool
   call_hotkey      Picker
+  stealth          Toggle           (hidden recording; set key `call_stealth`)
   auto_capture     Toggle
   device           Picker
 terms

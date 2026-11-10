@@ -292,3 +292,28 @@ class TestLiveTyping(unittest.TestCase):
         with open(config.config_path(), "w", encoding="utf-8") as f:
             json.dump({"ui_language": "klingon"}, f)
         self.assertEqual(config.load()["ui_language"], "system")
+
+    def test_sound_theme_defaults_to_cuelume_default(self):
+        self.assertEqual(config.load()["sound_theme"], "default")
+
+    def test_sound_theme_roundtrip(self):
+        config.update(sound_theme="mech")
+        self.assertEqual(config.load()["sound_theme"], "mech")
+
+    def test_sound_theme_junk_falls_back(self):
+        config.save({"sound_theme": "kazoo"})
+        self.assertEqual(config.load()["sound_theme"], "default")
+
+    def test_sound_themes_match_the_sounds_module(self):
+        import sounds
+
+        self.assertEqual(config.SOUND_THEMES, sounds.THEMES)
+
+    def test_call_stealth_defaults_off_and_roundtrips(self):
+        self.assertFalse(config.load()["call_stealth"])
+        config.update(call_stealth=True)
+        self.assertTrue(config.load()["call_stealth"])
+
+    def test_call_stealth_junk_falls_back_to_off(self):
+        config.save({"call_stealth": "yes"})
+        self.assertFalse(config.load()["call_stealth"])

@@ -46,6 +46,7 @@ class View:
     live_typing: bool = True
     insert_mode: str = "paste"
     ui_language: str = "system"
+    sound_theme: str = "default"
     system_language: str = "en"  # во что разрешается "system"
     login_available: bool = False
     login_enabled: bool = False
@@ -64,6 +65,7 @@ class View:
     call_started_at: Optional[float] = None
     auto_supported: bool = False
     auto_capture: bool = True
+    call_stealth: bool = False
     call_device: Optional[str] = None
     input_devices: list = field(default_factory=list)
     terms: dict = field(default_factory=dict)  # replacements: услышано → как писать
@@ -190,6 +192,15 @@ def _general(v: View) -> dict:
             "options": [
                 _option("paste", i18n.t("settings.insert.paste"), glyph="⌘V"),
                 _option("ax", i18n.t("settings.insert.ax")),
+            ],
+        },
+        "sounds": {
+            "value": v.sound_theme,
+            "caption": i18n.t("settings.general.sounds.caption"),
+            "disabled_reason": None,
+            "options": [
+                _option(t, i18n.t(f"settings.sound.{t}"), separator_before=t == "macos")
+                for t in config.SOUND_THEMES
             ],
         },
         "ui_language": {
@@ -321,6 +332,7 @@ def _calls(v: View, exists: Callable[[str], bool]) -> dict:
         "auto_capture": _toggle(
             auto_on, None if v.auto_supported else i18n.t("settings.auto.reason")
         ),
+        "stealth": _toggle(v.call_stealth),
         "device": {
             "value": v.call_device,
             "caption": i18n.t("settings.device.caption"),
@@ -437,7 +449,9 @@ def validate_set(v: View, key: str, value: Any) -> "Tuple[Any, Optional[str]]":
         return (value, None) if value in config.UI_LANGUAGES else invalid
     if key == "smart_mode":
         return (value, None) if value in config.SMART_MODES else invalid
-    if key in ("live_typing", "launch_at_login", "auto_system_audio"):
+    if key == "sound_theme":
+        return (value, None) if value in config.SOUND_THEMES else invalid
+    if key in ("live_typing", "launch_at_login", "auto_system_audio", "call_stealth"):
         if not isinstance(value, bool):
             return invalid
         if value and key == "live_typing" and live_typing_reason(v) is not None:

@@ -9,7 +9,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Tuple
 
 import i18n
@@ -38,6 +38,7 @@ class Snapshot:
     model_name: str = ""
     audio_dead: bool = False
     hotkey: str = "right_option"
+    stealth: bool = False  # скрытая запись: иконка не выдаёт звонок
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,9 @@ def kind(s: Snapshot) -> str:
 
 
 def frame(s: Snapshot) -> Frame:
-    k = kind(s)
+    # скрытая запись: иконка ведёт себя так, будто звонка нет; строка статуса
+    # в меню (status) звонок по-прежнему показывает
+    k = kind(replace(s, call_state="idle") if s.stealth else s)
     if k == "audio_dead":
         return Frame(symbol="exclamationmark.triangle")
     if k == "call_recording":

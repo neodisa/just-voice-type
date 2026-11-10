@@ -85,6 +85,22 @@ class TestFrame(unittest.TestCase):
     def test_frames_are_hashable(self):
         {mi.frame(Snapshot()): 1}
 
+    def test_stealth_call_recording_looks_idle(self):
+        f = mi.frame(Snapshot(call_state="recording", call_elapsed=724, stealth=True))
+        self.assertEqual(f, mi.frame(Snapshot()))
+
+    def test_stealth_call_transcribing_looks_idle(self):
+        f = mi.frame(Snapshot(call_state="transcribing", now=0.7, stealth=True))
+        self.assertEqual(f, mi.frame(Snapshot()))
+
+    def test_stealth_still_shows_dictation(self):
+        f = mi.frame(Snapshot(call_state="recording", state="recording", stealth=True))
+        self.assertEqual(f.tint, "rec")
+        self.assertEqual(f.text, "")
+
+    def test_stealth_without_a_call_changes_nothing(self):
+        self.assertEqual(mi.frame(Snapshot(stealth=True, enabled=False)).symbol, "mic.slash")
+
 
 class TestStatus(unittest.TestCase):
     def tearDown(self):
@@ -115,6 +131,11 @@ class TestStatus(unittest.TestCase):
     def test_call_time(self):
         i18n.set_language("ru")
         s = mi.status(Snapshot(call_state="recording", call_elapsed=65))
+        self.assertEqual(s, mi.Status(dot="rec", text="Запись звонка · 1:05"))
+
+    def test_stealth_menu_line_still_shows_the_call(self):
+        i18n.set_language("ru")
+        s = mi.status(Snapshot(call_state="recording", call_elapsed=65, stealth=True))
         self.assertEqual(s, mi.Status(dot="rec", text="Запись звонка · 1:05"))
 
     def test_paused_and_dead(self):

@@ -37,6 +37,9 @@ struct CallsSection: View {
             Box {
                 PickerRow(label: store.s("calls.hotkey"), key: "call_hotkey", picker: c.callHotkey, keyStyle: true)
                 RowSep()
+                ToggleRow(label: store.s("calls.stealth"), caption: store.s("calls.stealth.caption"),
+                          key: "call_stealth", toggle: c.stealth)
+                RowSep()
                 ToggleRow(label: store.s("calls.auto"), caption: store.s("calls.auto.caption"),
                           key: "auto_system_audio", toggle: c.autoCapture)
                 RowSep()
