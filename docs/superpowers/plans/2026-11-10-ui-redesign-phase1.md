@@ -1104,7 +1104,7 @@ STATES = [
     ("model download", mi.Snapshot(model_loading=True, model_cached=False)),
     ("audio dead", mi.Snapshot(audio_dead=True)),
 ]
-SCALE, ROW, LABEL_W, CELL = 3, 30.0, 170.0, 90.0
+SCALE, ROW, LABEL_W, CELL = 3, 30.0, 300.0, 90.0
 
 
 def main(out):
