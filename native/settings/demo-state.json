@@ -1,0 +1,869 @@
+{
+ "type": "state",
+ "rev": 1,
+ "ack": null,
+ "lang": "ru",
+ "strings": {
+  "window.title": "Настройки Just Voice Type",
+  "nav.general": "Основное",
+  "nav.recognition": "Распознавание",
+  "nav.calls": "Звонки",
+  "nav.terms": "Термины",
+  "nav.about": "О программе",
+  "general.lede": "Как вы диктуете и куда попадает текст.",
+  "general.group.dictation": "Диктовка",
+  "general.hotkey": "Клавиша",
+  "general.hotkey.caption": "Удерживайте, пока говорите. Двойное нажатие включает запись без удержания, одиночное останавливает.",
+  "general.live": "Печатать по ходу речи",
+  "general.live.caption": "Текст появляется по предложениям, пока вы говорите.",
+  "general.insert": "Вставка текста",
+  "general.insert.caption": "Через буфер работает везде. Напрямую не трогает буфер обмена, но работает не во всех приложениях.",
+  "general.group.app": "Приложение",
+  "general.ui_language": "Язык интерфейса",
+  "general.login": "Запускать при входе в систему",
+  "recognition.lede": "Модель, язык речи и обработка текста. Всё работает на этом Mac.",
+  "recognition.group.model": "Модель",
+  "recognition.model.default": "по умолчанию",
+  "recognition.model.retry": "Повторить",
+  "recognition.group.language": "Язык речи",
+  "recognition.language.caption": "«Авто» определяет язык сам. Закрепите язык, если он путается.",
+  "recognition.language.more": "Ещё языки…",
+  "recognition.sheet.title": "Языки речи",
+  "recognition.sheet.caption": "Отмеченные языки появятся быстрыми кнопками рядом с «Авто».",
+  "recognition.sheet.search": "Найти язык",
+  "recognition.sheet.empty": "Такого языка нет в списке.",
+  "recognition.sheet.count": "Отмечено: {n}",
+  "recognition.sheet.done": "Готово",
+  "recognition.group.processing": "Обработка текста",
+  "recognition.mode": "Режим",
+  "recognition.vocab": "Подсказки распознаванию",
+  "recognition.vocab.caption": "Имена и слова, которые модель должна знать. Работают только с моделями Whisper.",
+  "recognition.vocab.add": "Добавить",
+  "recognition.vocab.placeholder": "слово",
+  "calls.lede": "Запись и расшифровка разговоров в Teams, Zoom, WhatsApp и любых других приложениях.",
+  "calls.group.recent": "Последние звонки",
+  "calls.group.all": "Все звонки",
+  "calls.show_all": "Показать все {n}",
+  "calls.collapse": "Свернуть",
+  "calls.open_folder": "Открыть папку",
+  "calls.search": "Найти по расшифровке",
+  "calls.search.empty": "Ничего не нашлось по «{q}». Поиск идёт по началу расшифровок.",
+  "calls.missing": "Файл расшифровки удалён или перемещён.",
+  "calls.copy": "Скопировать расшифровку",
+  "calls.copied": "Скопировано",
+  "calls.open": "Открыть файл",
+  "calls.live.recording": "Идёт запись",
+  "calls.live.recording.caption": "Записываем вас и собеседника. Расшифровка начнётся после остановки.",
+  "calls.live.stop": "Остановить",
+  "calls.live.transcribing": "Расшифровываю звонок…",
+  "calls.empty.title": "Здесь появятся ваши звонки",
+  "calls.empty.caption": "Нажмите F13 или выберите «Записать звонок» в меню. Расшифровка сохранится в папку и появится в этом списке.",
+  "calls.empty.record": "Записать звонок",
+  "calls.group.recording": "Запись",
+  "calls.unsupported.title": "Автозахват недоступен на этой версии macOS",
+  "calls.unsupported.caption": "Нужна macOS 14.4 или новее. Пока можно записывать собеседника через виртуальное устройство, например BlackHole.",
+  "calls.unsupported.howto": "Как настроить",
+  "calls.hotkey": "Клавиша звонка",
+  "calls.hotkey.caption": "Первое нажатие начинает запись, второе останавливает.",
+  "calls.auto": "Записывать собеседника автоматически",
+  "calls.auto.caption": "Системный звук без виртуального драйвера, macOS 14.4 и новее. Записывается всё, что играет на Mac.",
+  "calls.device": "Устройство вручную",
+  "calls.device.none": "Не выбрано",
+  "calls.consent": "Запись разговора может требовать согласия собеседника.",
+  "terms.lede": "Как слово распознаётся и как его писать. Склонения подхватываются сами: «в фигме» станет «в Figma».",
+  "terms.search": "Найти термин",
+  "terms.add": "Добавить",
+  "terms.heard": "Слышится",
+  "terms.wanted": "Пишется",
+  "terms.save": "Сохранить",
+  "terms.cancel": "Отмена",
+  "terms.delete": "Удалить",
+  "terms.empty.title": "Научите распознавание вашим словам",
+  "terms.empty.caption": "Если модель пишет «фигма» вместо Figma, добавьте пару «фигма → Figma». Склонения подхватятся сами.",
+  "terms.empty.add": "Добавить первый термин",
+  "terms.search.empty": "Термина «{q}» нет.",
+  "terms.search.add": "Добавить «{q}»",
+  "terms.note": "Нажмите на строку, чтобы исправить. Изменения работают со следующей диктовки.",
+  "about.lede": "Быстрый голосовой ввод текста в любое приложение: зажали клавишу, сказали, текст на месте. Ещё умеет записывать и расшифровывать звонки. Всё распознаётся на этом Mac, звук никуда не уходит.",
+  "about.group.updates": "Обновления",
+  "about.update.check": "Проверить",
+  "about.update.retry": "Повторить",
+  "about.update.whatsnew": "Что нового",
+  "about.update.download": "Скачать",
+  "about.group.links": "Ссылки",
+  "about.links.open": "Открыть",
+  "about.links.show": "Показать в Finder",
+  "about.group.author": "Автор",
+  "about.author.caption": "Придумал и делает Just Voice Type. Идеи и ошибки присылайте через GitHub.",
+  "about.copyright": "© 2026 Sergey Arkhipov · лицензия MIT",
+  "common.undo": "Отменить",
+  "common.esc": "Esc"
+ },
+ "errors": {},
+ "data": {
+  "version": "0.14.0",
+  "status": {
+   "dot": "ok",
+   "text": "Готов · Parakeet v3",
+   "timer_since": null
+  },
+  "general": {
+   "hotkey": {
+    "value": "right_option",
+    "caption": "Удерживайте, пока говорите. Двойное нажатие включает запись без удержания, одиночное останавливает.",
+    "disabled_reason": null,
+    "options": [
+     {
+      "value": "right_option",
+      "label": "правый Option",
+      "glyph": "⌥",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "left_option",
+      "label": "левый Option",
+      "glyph": "⌥",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "fn",
+      "label": "Fn",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "right_cmd",
+      "label": "правый Command",
+      "glyph": "⌘",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "left_cmd",
+      "label": "левый Command",
+      "glyph": "⌘",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "right_ctrl",
+      "label": "правый Control",
+      "glyph": "⌃",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "right_shift",
+      "label": "правый Shift",
+      "glyph": "⇧",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f13",
+      "label": "F13",
+      "glyph": null,
+      "note": "звонки",
+      "disabled": true,
+      "separator_before": true
+     },
+     {
+      "value": "f14",
+      "label": "F14",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f15",
+      "label": "F15",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f16",
+      "label": "F16",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f17",
+      "label": "F17",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f18",
+      "label": "F18",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f19",
+      "label": "F19",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     }
+    ]
+   },
+   "live_typing": {
+    "value": true,
+    "disabled_reason": null,
+    "link": null
+   },
+   "insert_mode": {
+    "value": "paste",
+    "caption": "Через буфер работает везде. Напрямую не трогает буфер обмена, но работает не во всех приложениях.",
+    "disabled_reason": null,
+    "options": [
+     {
+      "value": "paste",
+      "label": "Через буфер",
+      "glyph": "⌘V",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "ax",
+      "label": "Напрямую в поле",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     }
+    ]
+   },
+   "ui_language": {
+    "value": "system",
+    "caption": null,
+    "disabled_reason": null,
+    "options": [
+     {
+      "value": "system",
+      "label": "Как в системе",
+      "glyph": null,
+      "note": "сейчас English",
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "ru",
+      "label": "Русский",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": true
+     },
+     {
+      "value": "en",
+      "label": "English",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     }
+    ]
+   },
+   "launch_at_login": {
+    "value": false,
+    "disabled_reason": null,
+    "link": null
+   },
+   "warning": null
+  },
+  "recognition": {
+   "models": [
+    {
+     "id": "mlx-community/parakeet-tdt-0.6b-v3",
+     "name": "Parakeet v3",
+     "desc": "Самая быстрая. Русский, украинский, английский и ещё 22 европейских языка.",
+     "size": "2,4 ГБ",
+     "default": true,
+     "selected": true,
+     "state": "ready",
+     "progress": null,
+     "note": null
+    },
+    {
+     "id": "mlx-community/whisper-large-v3-mlx",
+     "name": "Whisper Large v3",
+     "desc": "Точнее и медленнее. 99 языков, понимает подсказки.",
+     "size": "2,9 ГБ",
+     "default": false,
+     "selected": false,
+     "state": "ready",
+     "progress": null,
+     "note": null
+    },
+    {
+     "id": "mlx-community/whisper-large-v3-turbo",
+     "name": "Whisper Turbo",
+     "desc": "Быстрее Large, но хуже с русским и украинским.",
+     "size": "1,5 ГБ",
+     "default": false,
+     "selected": false,
+     "state": "ready",
+     "progress": null,
+     "note": null
+    },
+    {
+     "id": "mlx-community/whisper-medium-mlx",
+     "name": "Whisper Medium",
+     "desc": "Баланс скорости и точности.",
+     "size": "1,5 ГБ",
+     "default": false,
+     "selected": false,
+     "state": "downloading",
+     "progress": 0.42,
+     "note": "Скачивается · 42 % из 1,5 ГБ"
+    },
+    {
+     "id": "mlx-community/whisper-small-mlx",
+     "name": "Whisper Small",
+     "desc": "Самая лёгкая, для слабых Mac.",
+     "size": "0,5 ГБ",
+     "default": false,
+     "selected": false,
+     "state": "absent",
+     "progress": null,
+     "note": "Скачается при выборе."
+    }
+   ],
+   "language": {
+    "value": null,
+    "chips": [
+     {
+      "value": null,
+      "label": "Авто"
+     },
+     {
+      "value": "ru",
+      "label": "Русский"
+     },
+     {
+      "value": "uk",
+      "label": "Украинский"
+     },
+     {
+      "value": "en",
+      "label": "Английский"
+     }
+    ]
+   },
+   "languages": [
+    {
+     "code": "ru",
+     "name": "Русский",
+     "english": "Russian",
+     "favorite": true,
+     "locked": false
+    },
+    {
+     "code": "uk",
+     "name": "Украинский",
+     "english": "Ukrainian",
+     "favorite": true,
+     "locked": false
+    },
+    {
+     "code": "en",
+     "name": "Английский",
+     "english": "English",
+     "favorite": true,
+     "locked": false
+    },
+    {
+     "code": "de",
+     "name": "Немецкий",
+     "english": "German",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "fr",
+     "name": "Французский",
+     "english": "French",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "es",
+     "name": "Испанский",
+     "english": "Spanish",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "it",
+     "name": "Итальянский",
+     "english": "Italian",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "pl",
+     "name": "Польский",
+     "english": "Polish",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "pt",
+     "name": "Португальский",
+     "english": "Portuguese",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "nl",
+     "name": "Нидерландский",
+     "english": "Dutch",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "cs",
+     "name": "Чешский",
+     "english": "Czech",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "sk",
+     "name": "Словацкий",
+     "english": "Slovak",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "bg",
+     "name": "Болгарский",
+     "english": "Bulgarian",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "hr",
+     "name": "Хорватский",
+     "english": "Croatian",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "da",
+     "name": "Датский",
+     "english": "Danish",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "fi",
+     "name": "Финский",
+     "english": "Finnish",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "sv",
+     "name": "Шведский",
+     "english": "Swedish",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "et",
+     "name": "Эстонский",
+     "english": "Estonian",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "lv",
+     "name": "Латышский",
+     "english": "Latvian",
+     "favorite": false,
+     "locked": false
+    },
+    {
+     "code": "lt",
+     "name": "Литовский",
+     "english": "Lithuanian",
+     "favorite": false,
+     "locked": false
+    }
+   ],
+   "smart_mode": {
+    "value": "raw",
+    "disabled_reason": null,
+    "options": [
+     {
+      "value": "raw",
+      "label": "Как сказано",
+      "caption": "Текст ровно так, как вы сказали."
+     },
+     {
+      "value": "clean",
+      "label": "Чистовой",
+      "caption": "Локальная Qwen убирает слова-паразиты и правит пунктуацию. При первом включении скачается 0,9 ГБ. Печать по ходу речи на это время выключится."
+     },
+     {
+      "value": "prompt",
+      "label": "Для ИИ",
+      "caption": "Локальная Qwen переписывает речь в чёткую задачу для ИИ. Печать по ходу речи на это время выключится."
+     }
+    ]
+   },
+   "vocabulary": {
+    "items": [
+     "Figma",
+     "LIGA360",
+     "Semantrum"
+    ],
+    "enabled": false
+   }
+  },
+  "calls": {
+   "count": 12,
+   "live": {
+    "state": "idle",
+    "started_at": null
+   },
+   "items": [
+    {
+     "id": "/Users/demo/Calls/call-00.txt",
+     "day": "Сегодня",
+     "time": "16:40",
+     "duration": "5:00",
+     "preview": "Обсуждаем релиз: окно настроек, иконку в строке меню и каталог моделей.",
+     "missing": false
+    },
+    {
+     "id": "/Users/demo/Calls/call-01.txt",
+     "day": "Сегодня",
+     "time": "11:05",
+     "duration": "12:13",
+     "preview": "Созвон с дизайном по карточке компании: фильтры, пустые состояния, экспорт.",
+     "missing": false
+    },
+    {
+     "id": "/Users/demo/Calls/call-02.txt",
+     "day": "Вчера",
+     "time": "17:20",
+     "duration": "19:26",
+     "preview": "Планирование спринта: приоритеты, оценка задач по поиску и аналитике.",
+     "missing": false
+    },
+    {
+     "id": "/Users/demo/Calls/call-03.txt",
+     "day": "Вчера",
+     "time": "10:32",
+     "duration": "26:39",
+     "preview": "Демо для команды продаж, вопросы про тарифы и интеграцию по API.",
+     "missing": false
+    },
+    {
+     "id": "/Users/demo/Calls/call-04.txt",
+     "day": "Пн, 9 нояб.",
+     "time": "15:45",
+     "duration": "33:52",
+     "preview": "Короткий разбор бага с зависанием микрофона после сна.",
+     "missing": false
+    },
+    {
+     "id": "/Users/demo/Calls/call-05.txt",
+     "day": "Пн, 9 нояб.",
+     "time": "09:10",
+     "duration": "40:05",
+     "preview": "Обсуждаем релиз: окно настроек, иконку в строке меню и каталог моделей.",
+     "missing": false
+    },
+    {
+     "id": "/Users/demo/Calls/call-06.txt",
+     "day": "Пт, 6 нояб.",
+     "time": "14:05",
+     "duration": "47:18",
+     "preview": "Созвон с дизайном по карточке компании: фильтры, пустые состояния, экспорт.",
+     "missing": false
+    },
+    {
+     "id": "/Users/demo/Calls/call-07.txt",
+     "day": "Чт, 5 нояб.",
+     "time": "16:20",
+     "duration": "54:31",
+     "preview": "Планирование спринта: приоритеты, оценка задач по поиску и аналитике.",
+     "missing": true
+    },
+    {
+     "id": "/Users/demo/Calls/call-08.txt",
+     "day": "Чт, 5 нояб.",
+     "time": "12:32",
+     "duration": "11:44",
+     "preview": "Демо для команды продаж, вопросы про тарифы и интеграцию по API.",
+     "missing": false
+    },
+    {
+     "id": "/Users/demo/Calls/call-09.txt",
+     "day": "Ср, 4 нояб.",
+     "time": "13:45",
+     "duration": "18:57",
+     "preview": "Короткий разбор бага с зависанием микрофона после сна.",
+     "missing": false
+    },
+    {
+     "id": "/Users/demo/Calls/call-10.txt",
+     "day": "Вт, 3 нояб.",
+     "time": "10:10",
+     "duration": "25:10",
+     "preview": "Обсуждаем релиз: окно настроек, иконку в строке меню и каталог моделей.",
+     "missing": false
+    },
+    {
+     "id": "/Users/demo/Calls/call-11.txt",
+     "day": "Пн, 2 нояб.",
+     "time": "15:05",
+     "duration": "32:23",
+     "preview": "Созвон с дизайном по карточке компании: фильтры, пустые состояния, экспорт.",
+     "missing": false
+    }
+   ],
+   "auto_supported": true,
+   "call_hotkey": {
+    "value": "f13",
+    "caption": "Первое нажатие начинает запись, второе останавливает.",
+    "disabled_reason": null,
+    "options": [
+     {
+      "value": "right_option",
+      "label": "правый Option",
+      "glyph": "⌥",
+      "note": "диктовка",
+      "disabled": true,
+      "separator_before": false
+     },
+     {
+      "value": "left_option",
+      "label": "левый Option",
+      "glyph": "⌥",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "fn",
+      "label": "Fn",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "right_cmd",
+      "label": "правый Command",
+      "glyph": "⌘",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "left_cmd",
+      "label": "левый Command",
+      "glyph": "⌘",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "right_ctrl",
+      "label": "правый Control",
+      "glyph": "⌃",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "right_shift",
+      "label": "правый Shift",
+      "glyph": "⇧",
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f13",
+      "label": "F13",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": true
+     },
+     {
+      "value": "f14",
+      "label": "F14",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f15",
+      "label": "F15",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f16",
+      "label": "F16",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f17",
+      "label": "F17",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f18",
+      "label": "F18",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "f19",
+      "label": "F19",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     }
+    ]
+   },
+   "auto_capture": {
+    "value": true,
+    "disabled_reason": null,
+    "link": null
+   },
+   "device": {
+    "value": null,
+    "caption": null,
+    "disabled_reason": "Нужно, только если автозахват выключен.",
+    "options": [
+     {
+      "value": "Агрегатное: звонки",
+      "label": "Агрегатное: звонки",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "BlackHole 2ch",
+      "label": "BlackHole 2ch",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "Микрофон MacBook Pro",
+      "label": "Микрофон MacBook Pro",
+      "glyph": null,
+      "note": "без собеседника",
+      "disabled": false,
+      "separator_before": false
+     }
+    ]
+   }
+  },
+  "terms": {
+   "items": [
+    {
+     "heard": "фигма",
+     "wanted": "Figma"
+    },
+    {
+     "heard": "клод код",
+     "wanted": "Claude Code"
+    },
+    {
+     "heard": "гитхаб",
+     "wanted": "GitHub"
+    },
+    {
+     "heard": "джира",
+     "wanted": "Jira"
+    },
+    {
+     "heard": "конфлюенс",
+     "wanted": "Confluence"
+    },
+    {
+     "heard": "хавар",
+     "wanted": "ховер"
+    },
+    {
+     "heard": "дейт пикер",
+     "wanted": "дейтпикер"
+    }
+   ]
+  },
+  "about": {
+   "update": {
+    "state": "uptodate",
+    "text": "У вас последняя версия. Проверено сегодня в 09:12.",
+    "version": null
+   },
+   "links": [
+    {
+     "id": "github",
+     "label": "Исходный код и релизы на GitHub",
+     "button": "Открыть"
+    },
+    {
+     "id": "config",
+     "label": "Папка настроек",
+     "button": "Показать в Finder"
+    },
+    {
+     "id": "logs",
+     "label": "Журналы работы",
+     "button": "Показать в Finder"
+    }
+   ],
+   "author": {
+    "name": "Sergey Arkhipov",
+    "github": "neodisa"
+   }
+  }
+ }
+}
