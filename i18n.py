@@ -93,10 +93,11 @@ def language() -> str:
     return _current
 
 
-def t(key: str, **kw: object) -> str:
+def t(msg_id: str, /, **kw: object) -> str:
     """Строка по ключу на текущем языке; нет перевода — английская,
-    нет и её — сам ключ (так пропуск видно, но ничего не падает)."""
-    s = STRINGS.get(_current, {}).get(key) or STRINGS[FALLBACK].get(key) or key
+    нет и её — сам ключ (так пропуск видно, но ничего не падает).
+    msg_id позиционный: плейсхолдер {key} передаётся как key=..."""
+    s = STRINGS.get(_current, {}).get(msg_id) or STRINGS[FALLBACK].get(msg_id) or msg_id
     return s.format(**kw) if kw else s
 
 
