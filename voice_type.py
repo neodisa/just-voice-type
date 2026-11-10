@@ -37,9 +37,12 @@ import calls
 import config
 import gestures
 import history
+import i18n
 import languages
 import live_typing
+import menubar_icon
 import mic_recovery
+import model_cache
 import polish
 import streaming
 import system_audio
@@ -1315,7 +1318,7 @@ def run_app(args):
     # до загрузки любых моделей: не даём MLX копить Metal-буферы гигабайтами
     limit_mlx_cache()
 
-    transcriber_holder: dict = {"obj": None, "loading": False}
+    transcriber_holder: dict = {"obj": None, "loading": False, "cached": True}
 
     # текущая выбранная модель (меняется из меню, переживает перезапуск);
     # значение подставляется ниже после чтения конфига
@@ -1331,6 +1334,8 @@ def run_app(args):
             return None
         transcriber_holder["loading"] = True
         transcriber_holder["obj"] = None
+        # для строки статуса: «Загружаю» (веса на диске) или «Скачиваю»
+        transcriber_holder["cached"] = model_cache.is_cached(current_model["value"] or "")
 
         def _load():
             target = current_model["value"]
@@ -1400,6 +1405,7 @@ def run_app(args):
         cfg["hotkey"] = args.hotkey
         config.save(cfg)
         cfg = config.load()
+    i18n.set_language(i18n.resolve(cfg["ui_language"], i18n.system_languages()))
 
     favorites = {"value": list(cfg["favorite_languages"])}
     current_lang = {"value": cfg["active_language"]}  # None = auto
@@ -1479,8 +1485,17 @@ def run_app(args):
     class VoiceTypeApp(rumps.App):
         def __init__(self):
             super().__init__("Voice Type", title="🎙", quit_button=None)
+            import menubar_view  # AppKit — только когда есть GUI
+
+            self._view_mod = menubar_view
+            self._icon_view = menubar_view.StatusItemView()
+            self._status_item = None
+            self._status_shown = None
+            self._last_slow = 0.0
             self._build_menu()
-            self._timer = rumps.Timer(self._on_tick, 0.3)
+            # 0.1 с — чтобы полоски уровня и таймеры были живыми; тяжёлая
+            # часть (watchdog, перестройка меню) идёт по-прежнему раз в 0.3 с
+            self._timer = rumps.Timer(self._on_tick, 0.1)
             self._timer.start()
 
         # ── построение меню из текущего состояния ──────────────────────────
@@ -1488,6 +1503,8 @@ def run_app(args):
             self.menu.clear()
             self.menu.update(
                 [
+                    self._make_status_item(),
+                    None,
                     rumps.MenuItem(
                         f"Voice Type v{__version__} — releases…",
                         callback=self.open_releases,
@@ -1523,6 +1540,16 @@ def run_app(args):
                     rumps.MenuItem("Quit", callback=self.quit_app),
                 ]
             )
+
+        def _make_status_item(self):
+            """Некликабельная строка статуса сверху меню."""
+            st = menubar_icon.status(self._snapshot(time.time()))
+            item = rumps.MenuItem(st.text)
+            item.set_callback(None)
+            self._view_mod.set_status_line(item._menuitem, st)
+            self._status_item = item
+            self._status_shown = st
+            return item
 
         def _auto_sysaudio_item(self):
             """Чек-пункт «Авто-захват системного звука». Активен только если
@@ -1960,8 +1987,41 @@ def run_app(args):
                 ctrl.put("call_start")
 
         # ── статус-иконка и действия ────────────────────────────────────────
+        def _snapshot(self, now):
+            model = current_model["value"] or ""
+            return menubar_icon.Snapshot(
+                now=now,
+                enabled=enabled["value"],
+                state=state["value"],
+                handsfree=bool(gr.is_handsfree),
+                level=float(recorder.level),
+                rec_elapsed=(now - session["start_ts"]) if session["active"] else 0.0,
+                inserted=now < done_until["ts"],
+                call_state=call_state["value"],
+                call_elapsed=(now - call_session["start_ts"])
+                if call_state["value"] == "recording"
+                else 0.0,
+                model_loading=transcriber_holder["loading"],
+                model_cached=transcriber_holder["cached"],
+                model_name=model.split("/")[-1],
+                audio_dead=recovery["gave_up"],
+                hotkey=current_hotkey["value"],
+            )
+
         def _on_tick(self, _):
             now = time.time()
+            if now - self._last_slow >= 0.3:
+                self._last_slow = now
+                self._slow_tick(now)
+            snap = self._snapshot(now)
+            st = menubar_icon.status(snap)
+            nsitem = getattr(getattr(self, "_nsapp", None), "nsstatusitem", None)
+            self._icon_view.update(nsitem, menubar_icon.frame(snap), st.text)
+            if self._status_item is not None and st != self._status_shown:
+                self._view_mod.set_status_line(self._status_item._menuitem, st)
+                self._status_shown = st
+
+        def _slow_tick(self, now):
             # сбой watchdog не должен ломать иконку и меню: раньше исключение
             # здесь обрывало весь тик — иконка замирала до перезапуска
             try:
@@ -1976,28 +2036,6 @@ def run_app(args):
             if menu_dirty["value"]:
                 menu_dirty["value"] = False
                 self._build_menu()
-            if call_state["value"] == "recording":
-                elapsed = int(now - call_session["start_ts"])
-                blink = "🔴" if int(now * 2) % 2 == 0 else "⭕"
-                self.title = f"📞{blink} {elapsed // 60:02d}:{elapsed % 60:02d}"
-            elif call_state["value"] == "transcribing":
-                dots = "." * (int(now * 2) % 4)
-                self.title = f"📞⏳{dots}"
-            elif state["value"] == "recording":
-                level = max(0.0, min(1.0, recorder.level * 6))
-                n = max(1, int(level * 5))
-                blink = "🔴" if int(now * 2) % 2 == 0 else "⭕"
-                bars = f"{'▮' * n}{'▯' * (5 - n)}"
-                # в hands-free клавиша свободна — помечаем ∞, чтобы было видно,
-                # что запись идёт сама и её надо остановить тапом
-                self.title = f"{blink}∞ {bars}" if gr.is_handsfree else f"{blink} {bars}"
-            elif state["value"] == "transcribing":
-                dots = "." * (int(now * 2) % 4)
-                self.title = f"⏳ transcribing{dots}"
-            elif now < done_until["ts"]:
-                self.title = "✓ copied"
-            else:
-                self.title = "🎙" if enabled["value"] else "🚫"
 
         def _watchdog_tick(self, now):
             """Страховка от «вечной записи».
