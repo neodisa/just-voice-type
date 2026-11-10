@@ -18,7 +18,7 @@ Russian. `JustVoiceTypeSettings --demo` renders it without Python;
 | type | fields | meaning |
 |---|---|---|
 | `state` | `rev` int, `ack` string\|null, `lang` "ru"\|"en", `strings` {key: text}, `data` {...}, `errors` {key: text} | full snapshot; replace everything you show |
-| `focus` | `section` "general"\|"recognition"\|"calls"\|"terms"\|"about" | bring the window to front, select the section |
+| `focus` | `section` "general"\|"recognition"\|"calls"\|"terms"\|"about"\|null | bring the window to front; select the section unless null |
 | `toast` | `text`, `action` {`name`, `label`, `args`}\|null | bottom toast for 5 s; the button sends `action` |
 | `quit` | — | close the window and exit 0 |
 

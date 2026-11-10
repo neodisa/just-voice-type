@@ -24,3 +24,7 @@ Wispr app my/
 
 # Built system-audio helper (scripts/build_syscap.sh)
 native/WhisperFlowSysCap
+
+# Built settings-window helper (scripts/build_settings.sh)
+native/JustVoiceTypeSettings
+native/JustVoiceTypeSettings-Fonts/
