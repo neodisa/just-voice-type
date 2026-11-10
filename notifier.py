@@ -3,7 +3,15 @@
 Основной путь — UNUserNotificationCenter: у таких уведомлений есть клик, и
 клик по уведомлению о звонке показывает файл звонка в Finder. Он доступен,
 только когда процесс — бандл с bundle id (установленный Voice Type.app);
-из голого venv-python и при отказе в разрешении остаётся osascript, как было.
+из голого venv-python остаётся osascript, как было.
+
+Ответ на запрос разрешения не окончательный: у Voice Type, который годами
+слал «старые» уведомления, macOS сразу отвечает «not allowed», но доставку
+всё равно решают переключатели в Системных настройках → Уведомления. Поэтому
+шлём через центр всегда и падаем на osascript, только если сама отправка
+вернула ошибку. Старый NSUserNotificationCenter в том же процессе usernoted
+не пускает («You can't mix modern clients with legacy clients»), см.
+voice_type.run_app.
 """
 
 import os
@@ -76,7 +84,9 @@ def _make_delegate_class():
         ):
             try:
                 content = response.notification().request().content()
-                handle_click(content.userInfo(), str(response.actionIdentifier()), self.reveal)
+                action = str(response.actionIdentifier())
+                self.log(f"[notify] clicked ({action})")
+                handle_click(content.userInfo(), action, self.reveal)
             except Exception as e:  # клик не должен ронять приложение
                 self.log(f"[notify] click failed: {e}")
             finally:
@@ -131,7 +141,8 @@ class Notifier:
 
         def on_auth(granted, error):
             if not granted:
-                self._log(f"[notify] permission not granted ({error}) — using osascript")
+                # не приговор: доставку решают Системные настройки (см. выше)
+                self._log(f"[notify] authorization: not granted ({error}); posting anyway")
 
         center.requestAuthorizationWithOptions_completionHandler_(
             UN.UNAuthorizationOptionAlert | UN.UNAuthorizationOptionSound, on_auth
