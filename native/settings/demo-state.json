@@ -97,7 +97,8 @@
   "about.author.caption": "Придумал и делает Just Voice Type. Идеи и ошибки присылайте через GitHub.",
   "about.copyright": "© 2026 Sergey Arkhipov · лицензия MIT",
   "common.undo": "Отменить",
-  "common.esc": "Esc"
+  "common.esc": "Esc",
+  "about.update.available": "Доступна версия 0.15.0"
  },
  "errors": {},
  "data": {
