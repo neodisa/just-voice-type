@@ -1933,7 +1933,7 @@ def run_app(args):
             for i, c in enumerate(recent):
                 path = c.get("path") or ""
                 exists = bool(path) and os.path.exists(path)
-                preview = (c.get("preview") or "").strip() or "…"
+                preview = settings_model.clean_preview(c.get("preview")) or "…"
                 when = (
                     f"{settings_model.day_label(c.get('ts') or 0, now)} "
                     f"{time.strftime('%H:%M', time.localtime(c.get('ts') or 0))} · "

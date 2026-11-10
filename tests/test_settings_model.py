@@ -338,3 +338,11 @@ class TestDayLabel(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPreview(unittest.TestCase):
+    def test_strips_leading_timestamp(self):
+        self.assertEqual(sm.clean_preview("[00:00] Привет, смотри"), "Привет, смотри")
+        self.assertEqual(sm.clean_preview("[1:02:03]   Yeah."), "Yeah.")
+        self.assertEqual(sm.clean_preview("Без метки [00:10] внутри"), "Без метки [00:10] внутри")
+        self.assertEqual(sm.clean_preview(None), "")

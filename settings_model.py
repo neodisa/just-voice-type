@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Tuple
 
@@ -102,6 +103,14 @@ def day_label(ts: float, now: float) -> str:
         day=d.day,
         month=months[d.month - 1],
     )
+
+
+_LEADING_TS = re.compile(r"^\s*\[\d{1,2}:\d{2}(?::\d{2})?\]\s*")
+
+
+def clean_preview(text) -> str:
+    """Начало расшифровки без метки времени первой реплики («[00:00] »)."""
+    return _LEADING_TS.sub("", str(text or "")).strip()
 
 
 def system_language_name(code: str) -> str:
@@ -290,7 +299,7 @@ def _calls(v: View, exists: Callable[[str], bool]) -> dict:
             "day": day_label(ts, v.now),
             "time": _dt.datetime.fromtimestamp(ts).strftime("%H:%M"),
             "duration": menubar_icon.fmt_elapsed(float(c.get("duration_sec") or 0.0)),
-            "preview": str(c.get("preview") or ""),
+            "preview": clean_preview(c.get("preview")),
             "missing": not (path and exists(path)),
         })
     auto_on = v.auto_capture and v.auto_supported
