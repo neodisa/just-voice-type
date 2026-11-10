@@ -99,7 +99,7 @@ A second, independent recording mode for calls (Teams, WhatsApp, Zoom, anything)
 - Runs for as long as the call lasts (up to a 4-hour safety cap), transcribing in the background the same way long dictations do.
 - On stop, saves the full transcript to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste it into any AI tool for analysis. No auto-paste into a field. Click the «Call transcribed» notification to see the file selected in Finder (the first launch asks to allow notifications for Voice Type).
 - Starts/stops via the **Record call** menu item (turns into **Stop call** while active), or a dedicated toggle hotkey (**Settings → Calls → Call key**, default `F13`) — independent of the dictation hotkey. Starting one mode blocks the other.
-- Past calls are listed under **Calls** — click one to copy its transcript back to the clipboard, or use **Open Calls folder…**.
+- The three latest calls sit right in the menu — click one to copy its transcript back to the clipboard, hold ⌥ to open the file. **All calls…** opens **Settings → Calls** with the full list and the folder.
 - **Hidden recording** (**Settings → Calls**): the menubar icon stays the plain microphone while a call records and transcribes; open the menu to see the timer and stop it. Call sounds and call notifications stay quiet. The orange macOS microphone dot is a system indicator and still shows, as it does for every dictation.
 - Recording a call may require the other party's consent depending on your jurisdiction — check your local law before you start.
 - With **automatic system-audio capture** on (see below), a call recording captures **everything playing on your Mac** during the call — not just the call app. Mute or quit other audio sources if you don't want them in the transcript.
@@ -184,14 +184,14 @@ A 🎙 icon appears in the menubar. Hold Right Option — a capsule with a pulsi
 | Flag | Meaning |
 |---|---|
 | `--engine mlx \| faster` | Backend. Default `mlx` (fastest on Apple Silicon). |
-| `--model <id>` | HF model id. Default `mlx-community/parakeet-tdt-0.6b-v3` (overrides the menu choice for this launch). |
+| `--model <id>` | HF model id. Default `mlx-community/parakeet-tdt-0.6b-v3` (overrides the Settings choice for this launch). |
 | `--lang en` | Language code. Default `ru`. Use `en`, `de`, `es`, etc. |
 | `--hotkey right_option` | `right_option`, `left_option`, `fn`, `right_shift`, `f13`..`f20`. |
 | `--no-paste` | Don't paste, only copy to clipboard. |
 | `--no-restore-clipboard` | Don't restore the previous clipboard contents. |
 | `--notify` | Show a macOS notification with the recognized text. |
 
-`--lang` and `--hotkey` only **seed** the config on the very first run. After that, `~/.config/just-voice-type/config.json` (driven by the Language and Hotkey menus) is authoritative and the flags are ignored. Delete that file to reset to defaults.
+`--lang` and `--hotkey` only **seed** the config on the very first run. After that, `~/.config/just-voice-type/config.json` (driven by the Settings window) is authoritative and the flags are ignored. Delete that file to reset to defaults.
 
 There's also a headless CLI version, `voice_type_cli.py`, with the same flags and no menubar UI.
 
