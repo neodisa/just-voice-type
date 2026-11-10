@@ -151,12 +151,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if !title.isEmpty { w?.title = title }
         }
         window = w
-        w.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        bringToFront()
     }
 
+    /// macOS 14+ activation is cooperative: we are a child of a menubar app
+    /// that is not frontmost, so `activate()` is usually refused and the window
+    /// would open behind the active app. `orderFrontRegardless()` raises the
+    /// window anyway; the first click on it then activates us.
     func bringToFront() {
-        window?.makeKeyAndOrderFront(nil)
+        guard let w = window else { return }
+        w.makeKeyAndOrderFront(nil)
+        w.orderFrontRegardless()
         NSApp.activate()
     }
 
