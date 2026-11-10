@@ -279,3 +279,16 @@ class TestLiveTyping(unittest.TestCase):
     def test_junk_falls_back_to_default(self):
         config.save({"live_typing": "yes"})
         self.assertTrue(config.load()["live_typing"])
+
+    def test_ui_language_defaults_to_system(self):
+        self.assertEqual(config.load()["ui_language"], "system")
+
+    def test_ui_language_roundtrip(self):
+        config.update(ui_language="ru")
+        self.assertEqual(config.load()["ui_language"], "ru")
+
+    def test_ui_language_junk_falls_back_to_system(self):
+        os.makedirs(config.config_dir(), exist_ok=True)
+        with open(config.config_path(), "w", encoding="utf-8") as f:
+            json.dump({"ui_language": "klingon"}, f)
+        self.assertEqual(config.load()["ui_language"], "system")

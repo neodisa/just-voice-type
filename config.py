@@ -46,10 +46,14 @@ DEFAULTS = {
     # Печать по ходу речи: слова появляются в поле, пока вы говорите (только
     # Parakeet и режим Raw). False — текст вставляется целиком в конце.
     "live_typing": True,
+    # Язык интерфейса: "system" — по языку системы (см. i18n.resolve),
+    # "ru" / "en" — выбран вручную в настройках.
+    "ui_language": "system",
 }
 
 SMART_MODES = ("raw", "clean", "prompt")
 INSERT_MODES = ("paste", "ax")
+UI_LANGUAGES = ("system", "ru", "en")
 
 
 def _defaults_copy() -> "dict[str, Any]":
@@ -66,6 +70,7 @@ def _defaults_copy() -> "dict[str, Any]":
         "call_device": DEFAULTS["call_device"],
         "auto_system_audio": DEFAULTS["auto_system_audio"],
         "live_typing": DEFAULTS["live_typing"],
+        "ui_language": DEFAULTS["ui_language"],
     }
 
 
@@ -149,6 +154,9 @@ def _validate(raw: Any) -> "dict[str, Any]":
 
     live = raw.get("live_typing")
     cfg["live_typing"] = live if isinstance(live, bool) else DEFAULTS["live_typing"]
+
+    ui_lang = raw.get("ui_language")
+    cfg["ui_language"] = ui_lang if ui_lang in UI_LANGUAGES else DEFAULTS["ui_language"]
 
     # звонок и диктовка не могут висеть на одной и той же клавише
     if cfg["call_hotkey"] == cfg["hotkey"]:
