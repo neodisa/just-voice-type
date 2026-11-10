@@ -57,7 +57,7 @@ import updates
 
 # единственный источник правды о версии; бампается при каждом релизе
 # (тег vX.Y.Z в git должен совпадать)
-__version__ = "0.13.0"
+__version__ = "0.14.0"
 RELEASES_URL = "https://github.com/neodisa/just-voice-type/releases"
 
 SAMPLE_RATE = 16_000
@@ -1868,6 +1868,7 @@ def run_app(args):
             self._status_item = None
             self._status_shown = None
             self._last_slow = 0.0
+            self._download_noticed = False
             self._last_menu_key = None
             self._build_menu()
             # 0.1 с — чтобы полоски уровня и таймеры были живыми; тяжёлая
@@ -2102,6 +2103,17 @@ def run_app(args):
                 if key not in watchdog_errors:
                     watchdog_errors.add(key)
                     log(f"[!] watchdog: {key}", err=True)
+            # первая загрузка модели идёт минутами — скажем об этом один раз
+            # на каждую загрузку (уведомления уже подключены, см. notifier)
+            downloading = transcriber_holder["loading"] and not transcriber_holder["cached"]
+            if downloading and not self._download_noticed:
+                self._download_noticed = True
+                name = model_catalog.display_name(current_model["value"] or "")
+                cat = model_catalog.get(current_model["value"] or "")
+                size = f"~{cat.size_gb:g} GB" if cat is not None else ""
+                notify("Voice Type", i18n.t("notify.model_downloading", model=name, size=size))
+            elif not transcriber_holder["loading"]:
+                self._download_noticed = False
             # перестройка меню (новая запись в истории) — только здесь,
             # в главном потоке AppKit; воркер лишь поднимает флаг
             if self._menu_key() != self._last_menu_key:

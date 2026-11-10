@@ -1,29 +1,36 @@
 # Just Voice Type
 
-**Local push-to-talk dictation for macOS**, powered by Whisper (Apple Silicon, MLX).
-Hold Right Option and speak, or **double-tap** it for hands-free — your text is pasted wherever the cursor is. No cloud, no API keys, no subscriptions.
+**Local push-to-talk dictation for macOS**, on-device speech recognition with NVIDIA Parakeet or Whisper (Apple Silicon, MLX).
+Hold Right Option and speak, or **double-tap** it for hands-free — your text is pasted wherever the cursor is. No cloud, no API keys, no subscriptions. It also records and transcribes calls.
 
-> A free, fully on-device alternative to Wispr Flow / Superwhisper. Works in English, Russian, and any other language Whisper supports.
+> A free, fully on-device alternative to Wispr Flow / Superwhisper. Works in English, Russian, Ukrainian and any other language Whisper supports.
+
+**[⬇ Download the DMG](https://github.com/neodisa/just-voice-type/releases/latest)** — Apple Silicon, macOS 14+. See [Download (DMG)](#download-dmg) for the first-launch steps.
+
+<p align="center">
+  <img src="docs/screenshots/general.png" width="49%" alt="Settings: General — dictation key, typing as you speak, text insertion, sounds">
+  <img src="docs/screenshots/calls.png" width="49%" alt="Settings: Calls — recent call transcripts with copy and open buttons">
+</p>
 
 ## Features
 
 - 🎙 **Menubar icon** with live status — monochrome SF Symbols that follow the light/dark menu bar, live red level bars while recording, a red phone + timer during a call; fixed width, so neighbouring icons don't jump. The first menu line spells out the state (*Ready · hold right ⌥*, *Recording · 0:07*, *Downloading model…*).
 - 🧭 **Short menu, full settings window** — the menu keeps what you use while working: **Record call**, your **three latest calls** (click copies the transcript, hold ⌥ to open the file), **Copy last dictation**, **Dictation history**, **Add term…**, pause, **Settings… ⌘,**. Everything you set once lives in the [Settings window](#settings-window).
 - ⌨️ **Push-to-talk** on any system key — switch it in **Settings → General** (Right Option, Left Option, Fn, Cmd, Ctrl, Shift, F13–F19), applied instantly, no restart.
-- 🙌 **Hands-free mode** — **double-tap** the hotkey and it keeps listening with the key released; **tap once** to stop. No need to hold the key through a long monologue. The menubar shows `🔴∞` while it's on. (Auto-stops after 5 min as a safety net.)
+- 🙌 **Hands-free mode** — **double-tap** the hotkey and it keeps listening with the key released; **tap once** to stop. No need to hold the key through a long monologue. The menubar icon gets an ∞ badge while it's on. (Auto-stops after 5 min as a safety net.)
 - 🌊 **Streaming transcription** — while you're still talking, long dictations are transcribed in the background in ~20s chunks, sliced at pauses so words aren't cut. By the time you stop there's almost nothing left to wait for — no more minute-long "frozen" transcribe on long recordings, and no runaway Whisper repetition loops.
 - 🧠 **On-device ASR** — default `parakeet-tdt-0.6b-v3` (NVIDIA Parakeet via MLX): ~10× faster than Whisper, multilingual incl. RU/UK/EN, auto-detects language. Whisper `large-v3` is one click away in **Settings → Recognition** when you want maximum accuracy. Falls back to `faster-whisper` on CPU. Models warm up in the background at startup, so the first dictation is as fast as the rest.
 - 🔀 **Switch models in Settings → Recognition** — pick `parakeet-v3` (fastest, default), `large-v3` (most accurate), `large-v3-turbo` (faster decode, weaker on Russian/Ukrainian), `medium`, or `small` on the fly, no restart. Your choice persists across restarts.
 - 🌐 **Pick the speech language in Settings → Recognition** — **Auto** plus your favourite languages as quick buttons; **More languages…** opens a searchable list of the full Whisper set (~99) where you check favourites.
 - 🪄 **Smart modes** — pick **Raw** (verbatim), **Clean** (strip filler & fix punctuation), or **Prompt** (restructure your dictation into a clear instruction for an AI) in **Settings → Recognition → Text processing**. Runs a small on-device LLM (`Qwen2.5-1.5B-Instruct-4bit` via `mlx_lm`) — still no cloud. Add domain terms as **Recognition hints** so misheard names/jargon get fixed and bias Whisper itself.
-- ⚡ **Live typing** — text appears in the focused field while you talk, **sentence by sentence** (Parakeet + Raw). Every ~0.4 s the last seconds of audio are re-transcribed with a full model pass; a sentence is typed once its end (. ? !) is the same in two passes and confirmed by the next word or a pause, using the freshest pass — so each sentence is recognized with its full context and you don't get «. и» / «, Но» glitches at the seams (typed text can't be corrected in another app's field). A very long sentence without a period is typed up to its last confirmed comma. Typed as keystrokes, so it works in Electron apps and terminals; the held hotkey's modifier is not applied to typed text. If you switch windows mid-dictation, typing stops and the full text is in **Copy last text**. Toggle: **Smart → Печатать по ходу речи**. Off = the whole text is inserted at the end, as before.
+- ⚡ **Live typing** — text appears in the focused field while you talk, **sentence by sentence** (Parakeet + Raw). Every ~0.4 s the last seconds of audio are re-transcribed with a full model pass; a sentence is typed once its end (. ? !) is the same in two passes and confirmed by the next word or a pause, using the freshest pass — so each sentence is recognized with its full context and you don't get «. и» / «, Но» glitches at the seams (typed text can't be corrected in another app's field). A very long sentence without a period is typed up to its last confirmed comma. Typed as keystrokes, so it works in Electron apps and terminals; the held hotkey's modifier is not applied to typed text. If you switch windows mid-dictation, typing stops and the full text is in **Copy last dictation**. Toggle: **Settings → General → Type as you speak**. Off = the whole text is inserted at the end, as before.
 - 🔤 **Terms / replacements** — a `heard → wanted` map in `config.json` rewrites terms in the text. Add one from the menu with **Add term…** (`фигма = Figma`, `хавар = ховер`) or manage the whole table in **Settings → Terms** (search, inline edit, delete with undo). Declined forms of a dictionary-form key are matched too: `фигма = Figma` also fixes «в фигме», «фигму»; `хавар = ховер` turns «хавару» into «ховеру». A key that's already an inflected form (e.g. `пройде`) only matches exactly, so real words aren't touched. Applied after transcription (and after any Smart polish), also to live typing — no extra latency. Edits apply on your next dictation.
 - 📞 **Call Mode** — a second, independent recording mode for calls: captures both sides (your mic + the call's system audio — **automatically on macOS 14.4+ via a Core Audio tap**, no loopback driver needed; virtual-loopback fallback for older macOS), transcribes continuously in the background, and on stop saves a timestamped transcript (`[MM:SS] text`) to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste into any AI for analysis. Survives headphone / audio-routing changes mid-call. Independent Start/Stop hotkey (**Settings → Calls → Call key**, default `F13`) and the **Record call** menu item; recording one mode blocks the other. See [Call Mode](#call-mode) below. No speaker labels, no live transcript view, no raw audio saved.
 - 💾 **Settings persist** across restarts (favorite languages, active language, hotkey, smart mode, vocabulary, model, insertion mode, replacements, call hotkey, call device, auto system-audio capture, live typing) in `~/.config/just-voice-type/config.json`.
 - 📋 **Auto-paste** of recognized text via clipboard + `Cmd+V`, with original clipboard restored
 - 📝 **Insertion mode** — by default text is pasted via clipboard + Cmd+V (and the previous clipboard is restored). Switch **Settings → General → Text insertion** to **Directly into the field** to type straight into the focused field. In this mode the dictation **lands in the field you started in** even if you switch windows (it inserts into that app in the background), and the **clipboard is never clobbered** — on any fallback the previous clipboard is restored, and every dictation is always kept in the History menu. If the original field can't accept a background insert, the text is kept in history and you get a notification (no window is yanked to the front).
 - 🕘 **History menu** — the last 15 dictations, persisted across restarts (50 kept on disk in `~/.config/just-voice-type/history.json`); click any entry to copy it back to the clipboard
-- 🔔 Sounds on start, stop and when the text is in: four styles from [cuelume](https://github.com/danielwh2/cuelume), the old macOS sounds, or none (**Settings → General → Sounds**). Optional notifications.
+- 🔔 **Sounds** on start, stop and when the text is in: four styles from [cuelume](https://github.com/danielwh2/cuelume), the old macOS sounds, or none (**Settings → General → Sounds**). Optional notifications.
 - 🚀 **Autostart** as a LaunchAgent — the icon shows up right after login
 
 ## Settings window
@@ -35,6 +42,11 @@ Hold Right Option and speak, or **double-tap** it for hands-free — your text i
 - **Calls** — recent calls with copy / open / search, call key, hidden recording, automatic capture or a manual device.
 - **Terms** — the `heard → written` table with search, inline editing and undo.
 - **About** — version, update check against the latest GitHub release, links, author.
+
+<p align="center">
+  <img src="docs/screenshots/recognition.png" width="49%" alt="Settings: Recognition — model list with sizes, speech language, text processing">
+  <img src="docs/screenshots/terms.png" width="49%" alt="Settings: Terms — heard → written replacement table">
+</p>
 
 Changes apply immediately, there is no Save button. The window is a small helper process (`JustVoiceTypeSettings`) that only draws; all logic stays in Python and talks to it over JSON lines (see `native/settings/PROTOCOL.md`). When running from source, build it once:
 
@@ -51,7 +63,7 @@ One hotkey, three gestures:
 | Gesture | What it does |
 |---|---|
 | **Hold** (press, speak, release) | Push-to-talk — records while held, transcribes on release. |
-| **Double-tap** | Hands-free — keeps recording with the key released. The menubar shows `🔴∞`. |
+| **Double-tap** | Hands-free — keeps recording with the key released. The menubar icon gets an ∞ badge. |
 | **Single tap** (while hands-free) | Stops hands-free recording and transcribes. |
 
 A quick single tap that *isn't* followed by a second tap is treated as a normal short dictation — recording keeps going for half a second so nothing is lost while it waits to see if you're double-tapping.
@@ -112,11 +124,31 @@ Call Mode does **not** do speaker labels, a live growing transcript, or save the
 
 ## Requirements
 
-- macOS on Apple Silicon (M1/M2/M3/M4)
-- Python 3.10+
-- First run downloads the Whisper model (~3 GB for `large-v3`) into `~/.cache/huggingface/`
+- macOS on Apple Silicon (M1/M2/M3/M4); the DMG needs macOS 14+
+- Python 3.10+ (from source only)
+- First run downloads the speech model into `~/.cache/huggingface/` (~2.3 GB for the default Parakeet, ~3 GB for Whisper `large-v3`)
 
-## Install
+## Download (DMG)
+
+The easiest way: grab `JustVoiceType-<version>-arm64.dmg` from [Releases](https://github.com/neodisa/just-voice-type/releases). It is a self-contained app (Python and all libraries inside, ~600 MB installed) for **Apple Silicon, macOS 14+**.
+
+1. Open the DMG and drag **Just Voice Type** to **Applications**.
+2. Launch it. The app is ad-hoc signed, not notarized (no Apple Developer ID), so the first launch is blocked: open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to “Just Voice Type”. Or, in Terminal: `xattr -dr com.apple.quarantine "/Applications/Just Voice Type.app"`.
+3. Grant **Microphone**, **Accessibility** and **Input Monitoring** to *Just Voice Type* (see below), then quit it from the menubar and start it again. Allow notifications when asked — that's how the app tells you a model is downloading or a call is transcribed.
+4. On first launch the speech model (~2.3 GB) downloads into `~/.cache/huggingface/` — a notification says so; dictation starts working when it finishes. After that the app runs fully offline.
+
+Don't run it together with a from-source copy: the launcher exits if another instance of `voice_type.py` is already running. Updating to a new DMG keeps settings and history (`~/.config/just-voice-type/`), but macOS asks for the permissions again.
+
+### Building the DMG
+
+```bash
+python3 scripts/build_dmg.py --ref v0.14.0        # → dist/Just Voice Type.app + dist/JustVoiceType-0.14.0-arm64.dmg
+python3 scripts/smoke_test_bundle.py "dist/Just Voice Type.app"
+```
+
+Needs the python.org Python 3.13 framework, this repo's `.venv` with `requirements.txt` installed, Xcode Command Line Tools and network access (mlx is re-fetched as its macOS 14 build). The bundle copies the framework and the venv's packages (minus torch and build tools), builds the settings window helper, relinks the framework to load from inside the bundle and signs everything ad-hoc. The smoke test runs the bundled interpreter with a clean environment, transcribes a synthetic phrase with Parakeet, runs the Qwen polisher and fails if any library is loaded from outside the bundle. It needs the models already in the HuggingFace cache.
+
+## Install from source
 
 ```bash
 git clone https://github.com/neodisa/just-voice-type.git
@@ -135,7 +167,7 @@ pip install -r requirements.txt
 - **Accessibility** ✓ — without this, `pynput` can't see Right Option
 - **Input Monitoring** ✓
 
-Grant them to the process you're launching from: Terminal/iTerm while developing, or `~/just-voice-type/.venv/bin/python3` if you install the LaunchAgent.
+Grant them to the process you're launching from: *Just Voice Type* for the DMG, Terminal/iTerm while developing, or `~/just-voice-type/.venv/bin/python3` if you install the LaunchAgent.
 
 After granting, **fully restart** Terminal (Cmd+Q, then reopen).
 

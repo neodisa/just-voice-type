@@ -70,6 +70,11 @@ enum FontRegistry {
         if let exe = Bundle.main.executableURL?.resolvingSymlinksInPath() {
             dirs.append(URL(fileURLWithPath: exe.path + "-Fonts", isDirectory: true))
         }
+        // inside Just Voice Type.app the fonts live in Contents/Resources
+        // (Contents/MacOS may hold only code, or codesign rejects the bundle)
+        if let res = Bundle.main.resourceURL {
+            dirs.append(res.appendingPathComponent("JustVoiceTypeSettings-Fonts", isDirectory: true))
+        }
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
         dirs.append(cwd.appendingPathComponent("native/settings/Fonts", isDirectory: true))
         return dirs

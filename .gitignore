@@ -28,3 +28,6 @@ native/WhisperFlowSysCap
 # Built settings-window helper (scripts/build_settings.sh)
 native/JustVoiceTypeSettings
 native/JustVoiceTypeSettings-Fonts/
+
+# Packaged app / DMG (scripts/build_dmg.py)
+dist/
