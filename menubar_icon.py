@@ -75,7 +75,7 @@ def _dim_phase(now: float) -> bool:
     return int(now * 2) % 2 == 1
 
 
-def _kind(s: Snapshot) -> str:
+def kind(s: Snapshot) -> str:
     if s.audio_dead:
         return "audio_dead"
     if s.call_state == "recording":
@@ -96,7 +96,7 @@ def _kind(s: Snapshot) -> str:
 
 
 def frame(s: Snapshot) -> Frame:
-    k = _kind(s)
+    k = kind(s)
     if k == "audio_dead":
         return Frame(symbol="exclamationmark.triangle")
     if k == "call_recording":
@@ -132,7 +132,7 @@ _DOTS = {
 
 
 def status(s: Snapshot) -> Status:
-    k = _kind(s)
+    k = kind(s)
     elapsed = s.call_elapsed if k == "call_recording" else s.rec_elapsed
     text = i18n.t(
         f"status.{k}",
