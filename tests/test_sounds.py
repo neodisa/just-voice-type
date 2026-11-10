@@ -77,6 +77,52 @@ class PlayTest(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+class CuesTest(unittest.TestCase):
+    """Конец диктовки звучит одним звуком, как и начало."""
+
+    def setUp(self):
+        self.now = 0.0
+        self.played = []
+
+        def play(event, theme, *, quiet_calls=False):
+            self.played.append((event, theme, quiet_calls))
+
+        self.cues = sounds.Cues(play=play, clock=lambda: self.now)
+
+    def at(self, t, event, theme="bubble", **kw):
+        self.now = t
+        self.cues(event, theme, **kw)
+
+    def events(self):
+        return [e for e, _, _ in self.played]
+
+    def test_done_right_after_stop_is_silent(self):
+        self.at(10.0, "dictation_stop")
+        self.at(10.2, "done")
+        self.assertEqual(self.events(), ["dictation_stop"])
+
+    def test_done_after_a_noticeable_wait_plays(self):
+        self.at(10.0, "dictation_stop")
+        self.at(10.0 + sounds.DONE_AFTER_STOP_SEC + 0.1, "done")
+        self.assertEqual(self.events(), ["dictation_stop", "done"])
+
+    def test_done_without_stop_plays(self):
+        self.at(10.0, "dictation_start")
+        self.at(10.5, "done")
+        self.assertEqual(self.events(), ["dictation_start", "done"])
+
+    def test_each_stop_starts_a_new_window(self):
+        self.at(10.0, "dictation_stop")
+        self.at(15.0, "done")
+        self.at(20.0, "dictation_stop")
+        self.at(20.1, "done")
+        self.assertEqual(self.events(), ["dictation_stop", "done", "dictation_stop"])
+
+    def test_passes_theme_and_quiet_calls_through(self):
+        self.at(1.0, "call_start", "mech", quiet_calls=True)
+        self.assertEqual(self.played, [("call_start", "mech", True)])
+
+
 class ShippedFilesTest(unittest.TestCase):
     def test_every_cuelume_theme_ships_every_event(self):
         for theme in sounds.CUELUME_THEMES:

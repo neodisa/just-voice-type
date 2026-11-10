@@ -1422,9 +1422,12 @@ def run_app(args):
     sound_theme = {"value": cfg["sound_theme"]}
     call_stealth = {"value": cfg["call_stealth"]}
 
+    cues = sounds.Cues()
+
     def play_event(event):
-        """Звук события в выбранном стиле; при скрытой записи звонок молчит."""
-        sounds.play(event, sound_theme["value"], quiet_calls=call_stealth["value"])
+        """Звук события в выбранном стиле; при скрытой записи звонок молчит.
+        «Готово» сразу после «стопа» не звучит (см. sounds.Cues)."""
+        cues(event, sound_theme["value"], quiet_calls=call_stealth["value"])
     insert_mode = {"value": cfg["insert_mode"]}
     # печать по ходу речи (см. live_typing) и её подпроцесс-печатальщик
     live_typing_on = {"value": cfg["live_typing"]}

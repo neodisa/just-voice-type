@@ -30,7 +30,7 @@ Hold Right Option and speak, or **double-tap** it for hands-free — your text i
 - 📋 **Auto-paste** of recognized text via clipboard + `Cmd+V`, with original clipboard restored
 - 📝 **Insertion mode** — by default text is pasted via clipboard + Cmd+V (and the previous clipboard is restored). Switch **Settings → General → Text insertion** to **Directly into the field** to type straight into the focused field. In this mode the dictation **lands in the field you started in** even if you switch windows (it inserts into that app in the background), and the **clipboard is never clobbered** — on any fallback the previous clipboard is restored, and every dictation is always kept in the History menu. If the original field can't accept a background insert, the text is kept in history and you get a notification (no window is yanked to the front).
 - 🕘 **History menu** — the last 15 dictations, persisted across restarts (50 kept on disk in `~/.config/just-voice-type/history.json`); click any entry to copy it back to the clipboard
-- 🔔 **Sounds** on start, stop and when the text is in: four styles from [cuelume](https://github.com/danielwh2/cuelume), the old macOS sounds, or none (**Settings → General → Sounds**). Optional notifications.
+- 🔔 **Sounds** on start, stop and when the text is in (if the text lands within a second of releasing the key, the short stop sound is the only one): four styles from [cuelume](https://github.com/danielwh2/cuelume), the old macOS sounds, or none (**Settings → General → Sounds**). Optional notifications.
 - 🚀 **Autostart** as a LaunchAgent — the icon shows up right after login
 
 ## Settings window

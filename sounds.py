@@ -8,6 +8,7 @@ scripts/render_sounds.py. Стиль macos — системные Tink/Pop/Ping/
 
 import os
 import subprocess
+import time
 from typing import Callable, Optional, Tuple
 
 SOUNDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sounds")
@@ -96,3 +97,30 @@ def play(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+
+# Live typing доставляет текст через 0.1–0.2 с после отпускания клавиши, и
+# «готово» сливалось со «стопом» в один длинный звук. Начало диктовки — один
+# звук, конец тоже: если текст пришёл быстрее этого окна, хватает «стопа».
+# После заметного ожидания (Whisper, Clean/Prompt) «готово» всё же звучит.
+DONE_AFTER_STOP_SEC = 1.0
+
+
+class Cues:
+    """play() с памятью о последнем «стопе» диктовки."""
+
+    def __init__(self, *, play: Callable = play, clock: Callable[[], float] = time.monotonic):
+        self._play = play
+        self._clock = clock
+        self._stop_at: Optional[float] = None
+
+    def __call__(self, event: str, theme: str, *, quiet_calls: bool = False) -> None:
+        now = self._clock()
+        if event == "dictation_stop":
+            self._stop_at = now
+        elif event == "done" and self._stop_at is not None:
+            quick = now - self._stop_at < DONE_AFTER_STOP_SEC
+            self._stop_at = None
+            if quick:
+                return
+        self._play(event, theme, quiet_calls=quiet_calls)
