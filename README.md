@@ -23,16 +23,16 @@ Hold Right Option and speak, or **double-tap** it for hands-free — your text i
 - 📋 **Auto-paste** of recognized text via clipboard + `Cmd+V`, with original clipboard restored
 - 📝 **Insertion mode** — by default text is pasted via clipboard + Cmd+V (and the previous clipboard is restored). Switch **Settings → General → Text insertion** to **Directly into the field** to type straight into the focused field. In this mode the dictation **lands in the field you started in** even if you switch windows (it inserts into that app in the background), and the **clipboard is never clobbered** — on any fallback the previous clipboard is restored, and every dictation is always kept in the History menu. If the original field can't accept a background insert, the text is kept in history and you get a notification (no window is yanked to the front).
 - 🕘 **History menu** — the last 15 dictations, persisted across restarts (50 kept on disk in `~/.config/just-voice-type/history.json`); click any entry to copy it back to the clipboard
-- 🔔 macOS sounds on start/stop, optional notifications
+- 🔔 Sounds on start, stop and when the text is in: four styles from [cuelume](https://github.com/danielwh2/cuelume), the old macOS sounds, or none (**Settings → General → Sounds**). Optional notifications.
 - 🚀 **Autostart** as a LaunchAgent — the icon shows up right after login
 
 ## Settings window
 
 **Settings… (⌘,)** opens a native SwiftUI window (dark, the *console* look) with five sections:
 
-- **General** — dictation key, *type as you speak*, text insertion, interface language (follows macOS, or pick Русский / English), open at login.
+- **General** — dictation key, *type as you speak*, text insertion, sounds, interface language (follows macOS, or pick Русский / English), open at login.
 - **Recognition** — model list with sizes and download/loading state, speech language, text processing mode, recognition hints.
-- **Calls** — recent calls with copy / open / search, call key, automatic capture or a manual device.
+- **Calls** — recent calls with copy / open / search, call key, hidden recording, automatic capture or a manual device.
 - **Terms** — the `heard → written` table with search, inline editing and undo.
 - **About** — version, update check against the latest GitHub release, links, author.
 
@@ -85,9 +85,10 @@ A second, independent recording mode for calls (Teams, WhatsApp, Zoom, anything)
 - Records **both sides** — your microphone and the call's system audio. With automatic capture each side is transcribed on its own (so the other party's language doesn't hijack recognition of yours) and the utterances are merged chronologically as `[MM:SS] text` lines.
 - Recovers on its own when the audio route changes mid-call (headphones plugged in, Bluetooth switching); a `[⚠ пропуск записи ~Ns]` marker shows any short gap.
 - Runs for as long as the call lasts (up to a 4-hour safety cap), transcribing in the background the same way long dictations do.
-- On stop, saves the full transcript to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste it into any AI tool for analysis. No auto-paste into a field.
+- On stop, saves the full transcript to `~/Documents/JustVoiceType/Calls/` **and** copies it to the clipboard — paste it into any AI tool for analysis. No auto-paste into a field. Click the «Call transcribed» notification to see the file selected in Finder (the first launch asks to allow notifications for Voice Type).
 - Starts/stops via the **Record call** menu item (turns into **Stop call** while active), or a dedicated toggle hotkey (**Settings → Calls → Call key**, default `F13`) — independent of the dictation hotkey. Starting one mode blocks the other.
 - Past calls are listed under **Calls** — click one to copy its transcript back to the clipboard, or use **Open Calls folder…**.
+- **Hidden recording** (**Settings → Calls**): the menubar icon stays the plain microphone while a call records and transcribes; open the menu to see the timer and stop it. Call sounds and call notifications stay quiet. The orange macOS microphone dot is a system indicator and still shows, as it does for every dictation.
 - Recording a call may require the other party's consent depending on your jurisdiction — check your local law before you start.
 - With **automatic system-audio capture** on (see below), a call recording captures **everything playing on your Mac** during the call — not just the call app. Mute or quit other audio sources if you don't want them in the transcript.
 
@@ -221,7 +222,7 @@ python3 voice_type.py --engine faster --model large-v3                # CPU fast
 | No menubar icon | Check Bartender/HiddenBar isn't hiding it. |
 | Icon shows but the hotkey is dead | Accessibility / Input Monitoring not granted. Fully restart Terminal after granting. |
 | Capsule doesn't show up | Tkinter wasn't built into your system Python. Install Python via Homebrew or python.org. |
-| No sounds | `ls /System/Library/Sounds/` — make sure Tink/Pop exist. |
+| No sounds | Check **Settings → General → Sounds** isn't *No sounds*. The styles play `sounds/<style>/*.wav` through `afplay`; *macOS system sounds* need Tink/Pop in `/System/Library/Sounds/`. |
 | Model takes forever to load | First run only (~3 GB). Use `medium` for speed. |
 | Hallucinations like "Thanks for watching!" | Known Whisper artifact on silence. The most common ones are filtered out; for the rest, speak a bit longer. |
 | LaunchAgent restarts in a loop | `launchctl print gui/$(id -u)/com.justvoicetype.local` shows the exit code. Usually missing permissions or no `.venv`. |
@@ -252,4 +253,6 @@ then allow the microphone prompt and re-enable **Voice Type** in **Privacy & Sec
 ## License
 
 [MIT](LICENSE)
+
+The sounds in `sounds/` are rendered from [cuelume](https://github.com/danielwh2/cuelume) 0.2.8 by Daniel Belyi, MIT — see `sounds/LICENSE-cuelume.txt`. To re-render them: `.venv/bin/python scripts/render_sounds.py` and open the printed address in a browser.
 
