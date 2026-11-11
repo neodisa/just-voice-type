@@ -96,6 +96,12 @@ class TestShow(Base):
         self.assertTrue(self.answered.wait(2))
         self.assertEqual(self.answers, [("us.zoom.xos", "dismiss")])
 
+    def test_ignore_is_reported_too(self):
+        p = self.prompt(FakeProc(['{"type":"offer_answer","answer":"ignore"}\n']))
+        p.show("com.anthropic.claudefordesktop", PAYLOAD, self.on_answer)
+        self.assertTrue(self.answered.wait(2))
+        self.assertEqual(self.answers, [("com.anthropic.claudefordesktop", "ignore")])
+
     def test_no_helper_means_no_panel(self):
         p = self.prompt(helper=None)
         self.assertFalse(p.show("k", PAYLOAD, self.on_answer))

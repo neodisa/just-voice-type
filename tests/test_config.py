@@ -245,6 +245,35 @@ class TestCallDetect(unittest.TestCase):
 
         self.assertEqual(config.CALL_DETECT_MODES, call_detect.MODES)
 
+    def test_ignore_list_defaults_empty_and_roundtrips(self):
+        self.assertEqual(config.load()["call_detect_ignore"], {})
+        config.update(call_detect_ignore={"com.anthropic.claudefordesktop": "Claude"})
+        self.assertEqual(
+            config.load()["call_detect_ignore"], {"com.anthropic.claudefordesktop": "Claude"}
+        )
+
+    def test_ignore_list_keeps_order(self):
+        keys = ["us.zoom.xos", "com.anthropic.claudefordesktop", "com.google.Chrome"]
+        config.update(call_detect_ignore={k: k for k in keys})
+        self.assertEqual(list(config.load()["call_detect_ignore"]), keys)
+
+    def test_ignore_list_junk_is_cleaned(self):
+        config.save({"call_detect_ignore": ["com.anthropic.claudefordesktop"]})
+        self.assertEqual(config.load()["call_detect_ignore"], {})
+        config.save({"call_detect_ignore": {
+            " com.anthropic.claudefordesktop ": " Claude ",
+            "": "пусто",
+            "us.zoom.xos": 7,
+        }})
+        self.assertEqual(
+            config.load()["call_detect_ignore"],
+            {"com.anthropic.claudefordesktop": "Claude", "us.zoom.xos": "us.zoom.xos"},
+        )
+
+    def test_defaults_copy_does_not_share_the_ignore_dict(self):
+        config.load()["call_detect_ignore"]["x"] = "y"
+        self.assertEqual(config.DEFAULTS["call_detect_ignore"], {})
+
 
 if __name__ == "__main__":
     unittest.main()

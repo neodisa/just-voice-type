@@ -8,7 +8,7 @@ macOS может молча не показывать (authorizationStatus: Deni
 микрофон (withdraw).
 
 Обмен: одна строка JSON в stdin хелпера (готовые строки интерфейса), одна
-строка ответа из stdout ({"type":"offer_answer","answer":"record"|"dismiss"}).
+строка ответа из stdout ({"type":"offer_answer","answer":"record"|"dismiss"|"ignore"}).
 Закрытый stdin — плашка уходит без ответа.
 """
 from __future__ import annotations
@@ -20,7 +20,8 @@ from typing import Callable, Optional
 
 import settings_bridge
 
-ANSWERS = ("record", "dismiss")
+# ignore — «Не предлагать для {app}»: занести программу в исключения
+ANSWERS = ("record", "dismiss", "ignore")
 # хелпер не ушёл за столько секунд после закрытия stdin — добиваем
 EXIT_GRACE_SEC = 2.0
 

@@ -9,6 +9,10 @@
 - Stop(key, quiet_for): все программы, связанные с записью, уже
   STOP_AFTER_SEC не держат микрофон и не играют звук — остановить запись.
 
+Программы из списка исключений (ignore: голосовой ввод, диктовка) для
+детектора не существуют: им не предлагается запись, и они не связываются
+с ней — иначе диктовка во время встречи вживую остановила бы запись.
+
 Запись связывается с программами, которые были в микрофоне при её старте
 или держали его ASK_AFTER_SEC во время записи. Без связанных программ
 (встреча вживую) запись останавливается только вручную. Условие «не играет
@@ -26,6 +30,12 @@ ASK_AFTER_SEC = 8.0
 # пауза после звонка: короткий обрыв или переподключение не режет запись
 STOP_AFTER_SEC = 20.0
 MODES = ("ask", "off")
+
+
+def ignorable(key: str) -> bool:
+    """Можно ли занести программу в исключения: по bundle id — да; «pid:N»
+    меняется при каждом запуске, в списке он бесполезен."""
+    return bool(key) and not key.startswith("pid:")
 
 
 @dataclass(frozen=True)
@@ -62,8 +72,10 @@ class Detector:
         busy: bool,
         ask: bool,
         auto_stop: bool,
+        ignore: Iterable[str] = (),
     ) -> list:
-        on_mic, playing = set(on_mic), set(playing)
+        ignore = set(ignore)
+        on_mic, playing = set(on_mic) - ignore, set(playing)
         events: List[object] = []
         for key in sorted(self.mic_since):
             if key not in on_mic:
@@ -81,6 +93,7 @@ class Detector:
             self.linked = set(on_mic) if recording else set()
             self.quiet_since = None
             self._recording = recording
+        self.linked -= ignore  # исключили посреди записи
 
         held = {k for k in on_mic if now - self.mic_since[k] >= ASK_AFTER_SEC}
         if recording:

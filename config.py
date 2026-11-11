@@ -61,6 +61,10 @@ DEFAULTS = {
     # Останавливать запись, когда программа звонка отпустила микрофон и
     # замолчала (call_detect.STOP_AFTER_SEC).
     "call_auto_stop": True,
+    # Программы, которым не предлагать запись звонка: {ключ mic_users.app_key:
+    # название для настроек}. Пополняется кнопкой «Не предлагать» на плашке.
+    # Для детектора их будто нет: не предлагаются и не останавливают запись.
+    "call_detect_ignore": {},
 }
 
 SMART_MODES = ("raw", "clean", "prompt")
@@ -91,6 +95,7 @@ def _defaults_copy() -> "dict[str, Any]":
         "call_stealth": DEFAULTS["call_stealth"],
         "call_detect": DEFAULTS["call_detect"],
         "call_auto_stop": DEFAULTS["call_auto_stop"],
+        "call_detect_ignore": dict(DEFAULTS["call_detect_ignore"]),
     }
 
 
@@ -189,6 +194,14 @@ def _validate(raw: Any) -> "dict[str, Any]":
 
     auto_stop = raw.get("call_auto_stop")
     cfg["call_auto_stop"] = auto_stop if isinstance(auto_stop, bool) else DEFAULTS["call_auto_stop"]
+
+    ignore = raw.get("call_detect_ignore")
+    if isinstance(ignore, dict):
+        for k, name in ignore.items():
+            if isinstance(k, str) and k.strip():
+                k = k.strip()
+                name = name.strip() if isinstance(name, str) else ""
+                cfg["call_detect_ignore"][k] = name or k
 
     # звонок и диктовка не могут висеть на одной и той же клавише
     if cfg["call_hotkey"] == cfg["hotkey"]:
