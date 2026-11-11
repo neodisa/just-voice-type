@@ -20,6 +20,9 @@ BAR_STEPS = 4
 _BAR_PROFILE = (0.55, 0.8, 1.0, 0.8, 0.55)
 # recorder.level у речи ~0.02–0.15; ×6 — как было в старом заголовке
 LEVEL_GAIN = 6.0
+# клавишу диктовки нажали во время скрытого звонка: столько секунд иконка
+# показывает звонок — понятно, почему диктовка не идёт и что запись ещё пишется
+PEEK_SEC = 3.0
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,7 @@ class Snapshot:
     audio_dead: bool = False
     hotkey: str = "right_option"
     stealth: bool = False  # скрытая запись: иконка не выдаёт звонок
+    peek: bool = False  # на PEEK_SEC показать скрытый звонок
 
 
 @dataclass(frozen=True)
@@ -97,9 +101,10 @@ def kind(s: Snapshot) -> str:
 
 
 def frame(s: Snapshot) -> Frame:
-    # скрытая запись: иконка ведёт себя так, будто звонка нет; строка статуса
-    # в меню (status) звонок по-прежнему показывает
-    k = kind(replace(s, call_state="idle") if s.stealth else s)
+    # скрытая запись: иконка ведёт себя так, будто звонка нет (кроме peek);
+    # строка статуса в меню (status) звонок по-прежнему показывает
+    hide = s.stealth and not s.peek
+    k = kind(replace(s, call_state="idle") if hide else s)
     if k == "audio_dead":
         return Frame(symbol="exclamationmark.triangle")
     if k == "call_recording":

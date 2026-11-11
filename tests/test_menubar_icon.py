@@ -101,6 +101,13 @@ class TestFrame(unittest.TestCase):
     def test_stealth_without_a_call_changes_nothing(self):
         self.assertEqual(mi.frame(Snapshot(stealth=True, enabled=False)).symbol, "mic.slash")
 
+    def test_peek_shows_the_hidden_call(self):
+        f = mi.frame(Snapshot(call_state="recording", call_elapsed=761, stealth=True, peek=True))
+        self.assertEqual((f.symbol, f.tint, f.text), ("phone.fill", "rec", "12:41"))
+
+    def test_peek_without_a_call_changes_nothing(self):
+        self.assertEqual(mi.frame(Snapshot(stealth=True, peek=True)), mi.frame(Snapshot()))
+
 
 class TestStatus(unittest.TestCase):
     def tearDown(self):

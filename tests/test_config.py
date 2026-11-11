@@ -215,6 +215,37 @@ class TestCallSettings(unittest.TestCase):
         self.assertEqual(config.load()["call_hotkey"], "f14")
 
 
+class TestCallDetect(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._old_xdg = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = self._tmp.name
+
+    def tearDown(self):
+        if self._old_xdg is None:
+            os.environ.pop("XDG_CONFIG_HOME", None)
+        else:
+            os.environ["XDG_CONFIG_HOME"] = self._old_xdg
+        self._tmp.cleanup()
+
+    def test_defaults_and_roundtrip(self):
+        cfg = config.load()
+        self.assertEqual((cfg["call_detect"], cfg["call_auto_stop"]), ("ask", True))
+        config.update(call_detect="off", call_auto_stop=False)
+        cfg = config.load()
+        self.assertEqual((cfg["call_detect"], cfg["call_auto_stop"]), ("off", False))
+
+    def test_junk_falls_back(self):
+        config.save({"call_detect": "always", "call_auto_stop": "yes"})
+        cfg = config.load()
+        self.assertEqual((cfg["call_detect"], cfg["call_auto_stop"]), ("ask", True))
+
+    def test_modes_match_the_detector(self):
+        import call_detect
+
+        self.assertEqual(config.CALL_DETECT_MODES, call_detect.MODES)
+
+
 if __name__ == "__main__":
     unittest.main()
 

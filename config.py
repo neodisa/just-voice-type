@@ -55,6 +55,12 @@ DEFAULTS = {
     # Скрытая запись звонков: иконка в строке меню не показывает звонок,
     # звуки звонка и уведомление о расшифровке молчат. Статус — только в меню.
     "call_stealth": False,
+    # Определение звонков по микрофону (call_detect.py): "ask" — когда другая
+    # программа держит микрофон, предложить запись уведомлением; "off" — нет.
+    "call_detect": "ask",
+    # Останавливать запись, когда программа звонка отпустила микрофон и
+    # замолчала (call_detect.STOP_AFTER_SEC).
+    "call_auto_stop": True,
 }
 
 SMART_MODES = ("raw", "clean", "prompt")
@@ -62,6 +68,8 @@ INSERT_MODES = ("paste", "ax")
 UI_LANGUAGES = ("system", "ru", "en")
 # совпадает с sounds.THEMES (тест следит), здесь — чтобы config не тянул sounds
 SOUND_THEMES = ("default", "mech", "bubble", "press", "macos", "off")
+# совпадает с call_detect.MODES (тест следит)
+CALL_DETECT_MODES = ("ask", "off")
 
 
 def _defaults_copy() -> "dict[str, Any]":
@@ -81,6 +89,8 @@ def _defaults_copy() -> "dict[str, Any]":
         "ui_language": DEFAULTS["ui_language"],
         "sound_theme": DEFAULTS["sound_theme"],
         "call_stealth": DEFAULTS["call_stealth"],
+        "call_detect": DEFAULTS["call_detect"],
+        "call_auto_stop": DEFAULTS["call_auto_stop"],
     }
 
 
@@ -173,6 +183,12 @@ def _validate(raw: Any) -> "dict[str, Any]":
 
     stealth = raw.get("call_stealth")
     cfg["call_stealth"] = stealth if isinstance(stealth, bool) else DEFAULTS["call_stealth"]
+
+    detect = raw.get("call_detect")
+    cfg["call_detect"] = detect if detect in CALL_DETECT_MODES else DEFAULTS["call_detect"]
+
+    auto_stop = raw.get("call_auto_stop")
+    cfg["call_auto_stop"] = auto_stop if isinstance(auto_stop, bool) else DEFAULTS["call_auto_stop"]
 
     # звонок и диктовка не могут висеть на одной и той же клавише
     if cfg["call_hotkey"] == cfg["hotkey"]:
