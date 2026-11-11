@@ -86,7 +86,7 @@ placeholders: `{n}` (a count it computes) and `{q}` (the search text).
 ## `data`
 
 ```
-version            "0.14.0"
+version            "0.15.0"
 status             {dot: "ok"|"rec"|"busy"|"paused"|"error", text, timer_since: epoch|null}
                    timer_since set → append " · m:ss" counted locally every second
 general

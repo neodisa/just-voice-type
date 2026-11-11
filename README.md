@@ -146,7 +146,7 @@ Don't run it together with a from-source copy: the launcher exits if another ins
 ### Building the DMG
 
 ```bash
-python3 scripts/build_dmg.py --ref v0.14.0        # → dist/Just Voice Type.app + dist/JustVoiceType-0.14.0-arm64.dmg
+python3 scripts/build_dmg.py --ref v0.15.0        # → dist/Just Voice Type.app + dist/JustVoiceType-0.15.0-arm64.dmg
 python3 scripts/smoke_test_bundle.py "dist/Just Voice Type.app"
 ```
 
