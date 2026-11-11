@@ -32,6 +32,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+import call_detect
 import call_health
 import calls
 import config
@@ -43,6 +44,7 @@ import live_typing
 import login_item
 import menubar_icon
 import mic_recovery
+import mic_users
 import model_cache
 import model_catalog
 import notifier
@@ -1421,6 +1423,13 @@ def run_app(args):
     smart_mode = {"value": cfg["smart_mode"]}
     sound_theme = {"value": cfg["sound_theme"]}
     call_stealth = {"value": cfg["call_stealth"]}
+    # определение звонков по микрофону (call_detect): предложить запись,
+    # остановить запись, когда программа звонка ушла
+    call_detect_mode = {"value": cfg["call_detect"]}
+    call_auto_stop = {"value": cfg["call_auto_stop"]}
+    # клавишу диктовки нажали во время скрытого звонка → иконка на
+    # menubar_icon.PEEK_SEC показывает звонок (см. on_press)
+    call_peek = {"until": 0.0}
 
     cues = sounds.Cues()
 
@@ -1578,6 +1587,16 @@ def run_app(args):
         config.update(call_stealth=call_stealth["value"])
         return None
 
+    def apply_call_detect(mode):
+        call_detect_mode["value"] = mode
+        config.update(call_detect=mode)
+        return None
+
+    def apply_call_auto_stop(on):
+        call_auto_stop["value"] = bool(on)
+        config.update(call_auto_stop=call_auto_stop["value"])
+        return None
+
     def apply_login(on):
         app_path = login_item.app_bundle_path()
         if app_path is None:
@@ -1602,6 +1621,8 @@ def run_app(args):
         "launch_at_login": apply_login,
         "sound_theme": apply_sound_theme,
         "call_stealth": apply_call_stealth,
+        "call_detect": apply_call_detect,
+        "call_auto_stop": apply_call_auto_stop,
     }
 
     def start_or_stop_call():
@@ -1713,6 +1734,9 @@ def run_app(args):
             auto_supported=system_audio.is_supported(),
             auto_capture=current_auto_sysaudio["value"],
             call_stealth=call_stealth["value"],
+            call_detect=call_detect_mode["value"],
+            call_auto_stop=call_auto_stop["value"],
+            detect_supported=mic_users.is_supported(),
             call_device=current_call_device["value"],
             input_devices=settings_ctx["devices"],
             terms=dict(cfg_now["replacements"]),
@@ -2081,6 +2105,7 @@ def run_app(args):
                 audio_dead=recovery["gave_up"],
                 hotkey=current_hotkey["value"],
                 stealth=call_stealth["value"],
+                peek=now < call_peek["until"],
             )
 
         def _on_tick(self, _):
@@ -2963,7 +2988,10 @@ def run_app(args):
                 return
             if key == hotkey_obj_holder["key"]:
                 if call_session["active"]:
-                    return  # звонок пишется — диктовку не стартуем поверх
+                    # звонок пишется — диктовку не стартуем поверх; иконка
+                    # на пару секунд показывает звонок (важно в скрытом режиме)
+                    call_peek["until"] = time.time() + menubar_icon.PEEK_SEC
+                    return
                 with gesture_lock:
                     _apply_actions(gr.on_press(time.time()), key)
             elif key == call_hotkey_obj_holder["key"]:
@@ -2987,6 +3015,90 @@ def run_app(args):
                 ct.on_release(time.time())
         except Exception as e:
             log(f"[!] on_release: {e}")
+
+    # ── определение звонков: кто держит микрофон (mic_users + call_detect) ──
+    mic_state = {"on_mic": frozenset(), "names": {}}
+
+    def own_pids():
+        """Наш процесс и хелпер системного звука — не «программа звонка»."""
+        pids = {os.getpid()}
+        helper = getattr(call_recorder_holder["obj"], "helper_pid", None)
+        if helper:
+            pids.add(helper)
+        return pids
+
+    def offer_ident(key):
+        return f"call-ask:{key}"
+
+    def app_label(key):
+        return mic_state["names"].get(key) or i18n.t("call.other_app")
+
+    def offer_call(key):
+        name = app_label(key)
+        if _notifier.native:
+            body = i18n.t("notify.call_offer", app=name)
+        else:  # osascript-уведомление не кликается — подскажем клавишу
+            body = i18n.t(
+                "notify.call_offer.press",
+                app=name,
+                key=i18n.key_name(current_call_hotkey["value"]),
+            )
+        log(f"[call-detect] offer: {name} ({key}) holds the microphone")
+        _notifier.notify(
+            "Voice Type", body, ident=offer_ident(key),
+            user_info={"action": "record_call", "app": key},
+        )
+
+    def record_from_offer(info):
+        key = str(info.get("app") or "")
+        if key not in mic_state["on_mic"] or call_session["active"] or session["active"]:
+            log(f"[call-detect] offer click ignored ({key})")
+            return
+        log(f"[call-detect] recording from the offer ({app_label(key)})")
+        start_or_stop_call()
+
+    _notifier.on_action("record_call", record_from_offer)
+
+    def call_detect_loop():
+        det = call_detect.Detector()
+        errors = set()
+        while True:
+            time.sleep(call_detect.POLL_SEC)
+            try:
+                recording = bool(call_session["active"])
+                clients = mic_users.snapshot(own_pids(), need_output=recording, log=log)
+                use = mic_users.usage(clients)
+                mic_state["on_mic"] = use.on_mic
+                mic_state["names"].update(use.names)
+                events = det.poll(
+                    time.time(), use.on_mic, use.playing,
+                    recording=recording,
+                    busy=bool(session["active"]) or not enabled["value"],
+                    ask=call_detect_mode["value"] == "ask",
+                    auto_stop=call_auto_stop["value"],
+                )
+                for ev in events:
+                    if isinstance(ev, call_detect.Ask):
+                        offer_call(ev.key)
+                    elif isinstance(ev, call_detect.Withdraw):
+                        _notifier.withdraw(offer_ident(ev.key))
+                    elif isinstance(ev, call_detect.Stop) and call_session["active"]:
+                        log(
+                            f"[call] auto-stop: {app_label(ev.key)} left the "
+                            f"microphone {int(ev.quiet_for)}s ago"
+                        )
+                        ctrl.put("call_stop")
+                        menu_dirty["value"] = True
+            except Exception as e:
+                k = f"{type(e).__name__}: {e}"
+                if k not in errors:
+                    errors.add(k)
+                    log(f"[!] call-detect: {k}", err=True)
+
+    if mic_users.is_supported():
+        threading.Thread(target=call_detect_loop, name="call-detect", daemon=True).start()
+    else:
+        log("[call-detect] Core Audio process list unavailable (macOS < 14.2) — off")
 
     threading.Thread(target=control_loop, daemon=True).start()
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)

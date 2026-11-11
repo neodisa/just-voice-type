@@ -47,12 +47,14 @@ about 20 ms.
   likewise `.helper.renderer`, `.helper.plugin`, `.Helper`), or uses
   `pid:<n>` when there is no bundle id. Browsers run input and output in one
   helper, so input and output of the same app meet under one key.
-- `app_name(key, pid) -> str` is a best-effort display name:
-  1. `NSRunningApplication` for the pid;
-  2. otherwise the running app with the key as its bundle id;
-  3. `com.apple.WebKit.GPU` maps to «Safari»;
-  4. otherwise the bundle id;
-  5. otherwise «Другая программа» / «Another app».
+- `app_name(key, pid) -> str | None` is a best-effort display name:
+  1. `com.apple.WebKit.GPU` maps to «Safari»;
+  2. the running app with the key as its bundle id (a Chrome helper pid
+     would give «Google Chrome Helper», so the bundle goes first);
+  3. otherwise `NSRunningApplication` for the pid;
+  4. otherwise the key itself;
+  5. for `pid:` keys, `None`, and the caller shows «Другая программа» /
+     «Another app».
 - Excluded pids: our own process and the system-audio helper
   (`SystemAudioCapture` exposes its child pid). Dictation and call recording
   by Voice Type itself never count.
@@ -120,12 +122,13 @@ errors once, the same way the watchdog does.
 ## Offer to record (notification)
 
 - Title «Voice Type». Body «{app} использует микрофон. Записать звонок?» /
-  «{app} is using the microphone. Record the call?». No sound.
+  «{app} is using the microphone. Record the call?». No sound: the
+  notifier never sets one.
 - Identifier `call-ask:<key>`, so `Withdraw` can remove a delivered
   notification and a repeat cannot stack. `userInfo = {"action": "record_call",
   "app": key}`.
 - `notifier` gains:
-  - `notify(..., ident=None, user_info=None, sound=True)`;
+  - `notify(..., ident=None, user_info=None)`;
   - `withdraw(ident)` (`removeDeliveredNotificationsWithIdentifiers_`);
   - routing of the default click through a registered handler per `action`.
 
