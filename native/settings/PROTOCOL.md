@@ -44,9 +44,10 @@ editor's key, the edit succeeded.
 |---|---|
 | `hotkey`, `call_hotkey` | an option `value` from the matching picker |
 | `insert_mode` | `"paste"` \| `"ax"` |
-| `live_typing`, `auto_system_audio`, `launch_at_login`, `call_stealth` | bool |
+| `live_typing`, `auto_system_audio`, `launch_at_login`, `call_stealth`, `call_auto_stop` | bool |
 | `ui_language` | `"system"` \| `"ru"` \| `"en"` |
 | `sound_theme` | `"default"` \| `"mech"` \| `"bubble"` \| `"press"` \| `"macos"` \| `"off"` (Python plays a sample) |
+| `call_detect` | `"ask"` \| `"off"` |
 | `model` | a model `id` |
 | `active_language` | `null` (Auto) or a language code |
 | `smart_mode` | `"raw"` \| `"clean"` \| `"prompt"` |
@@ -108,6 +109,8 @@ calls
   auto_supported   bool
   call_hotkey      Picker
   stealth          Toggle           (hidden recording; set key `call_stealth`)
+  detect           Picker           (offer to record when another app holds the mic; set key `call_detect`)
+  auto_stop        Toggle           (stop when the call app leaves the mic; set key `call_auto_stop`)
   auto_capture     Toggle
   device           Picker
 terms

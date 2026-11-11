@@ -228,6 +228,24 @@ class TestCalls(Base):
         t = self.calls(call_stealth=True)["stealth"]
         self.assertEqual(t, {"value": True, "disabled_reason": None, "link": None})
 
+    def test_detect_rows(self):
+        c = self.calls(detect_supported=True)
+        self.assertEqual(c["detect"]["value"], "ask")
+        self.assertEqual([o["value"] for o in c["detect"]["options"]], ["ask", "off"])
+        self.assertEqual([o["label"] for o in c["detect"]["options"]], ["Спрашивать", "Ничего не делать"])
+        self.assertIsNone(c["detect"]["disabled_reason"])
+        self.assertIn("оранжевая точка", c["detect"]["caption"])
+        self.assertEqual(c["auto_stop"], {"value": True, "disabled_reason": None, "link": None})
+        c = self.calls(detect_supported=True, call_detect="off", call_auto_stop=False)
+        self.assertEqual((c["detect"]["value"], c["auto_stop"]["value"]), ("off", False))
+
+    def test_detect_unsupported(self):
+        c = self.calls(detect_supported=False)
+        self.assertEqual(c["detect"]["value"], "off")
+        self.assertEqual(c["detect"]["disabled_reason"], "Нужна macOS 14.2 или новее")
+        self.assertFalse(c["auto_stop"]["value"])
+        self.assertEqual(c["auto_stop"]["disabled_reason"], "Нужна macOS 14.2 или новее")
+
     def test_call_hotkey_marks_dictation_key(self):
         p = self.calls(hotkey="right_option", call_hotkey="f13")["call_hotkey"]
         opt = {o["value"]: o for o in p["options"]}
@@ -301,6 +319,17 @@ class TestValidateSet(Base):
         self.bad("sound_theme", "kazoo")
         self.assertIs(self.ok("call_stealth", True), True)
         self.bad("call_stealth", "yes")
+
+    def test_call_detect(self):
+        self.assertEqual(self.ok("call_detect", "off", detect_supported=True), "off")
+        self.ok("call_detect", "ask", detect_supported=True)
+        self.bad("call_detect", "ask", detect_supported=False)
+        self.ok("call_detect", "off", detect_supported=False)
+        self.bad("call_detect", "always", detect_supported=True)
+        self.assertIs(self.ok("call_auto_stop", False, detect_supported=True), False)
+        self.ok("call_auto_stop", True, detect_supported=True)
+        self.bad("call_auto_stop", True, detect_supported=False)
+        self.bad("call_auto_stop", "yes", detect_supported=True)
 
     def test_device(self):
         self.ok("call_device", "BlackHole 2ch")

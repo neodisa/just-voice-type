@@ -66,6 +66,9 @@ class View:
     auto_supported: bool = False
     auto_capture: bool = True
     call_stealth: bool = False
+    call_detect: str = "ask"
+    call_auto_stop: bool = True
+    detect_supported: bool = False  # mic_users.is_supported(): macOS 14.2+
     call_device: Optional[str] = None
     input_devices: list = field(default_factory=list)
     terms: dict = field(default_factory=dict)  # replacements: услышано → как писать
@@ -314,6 +317,7 @@ def _calls(v: View, exists: Callable[[str], bool]) -> dict:
             "missing": not (path and exists(path)),
         })
     auto_on = v.auto_capture and v.auto_supported
+    detect_reason = None if v.detect_supported else i18n.t("settings.calls.detect.reason")
     dev_opts = [_option(d, d) for d in v.input_devices]
     if v.call_device and v.call_device not in v.input_devices:
         dev_opts.insert(0, _option(v.call_device, v.call_device, note=i18n.t("settings.device.missing")))
@@ -333,6 +337,15 @@ def _calls(v: View, exists: Callable[[str], bool]) -> dict:
             auto_on, None if v.auto_supported else i18n.t("settings.auto.reason")
         ),
         "stealth": _toggle(v.call_stealth),
+        "detect": {
+            "value": v.call_detect if v.detect_supported else "off",
+            "caption": i18n.t("settings.calls.detect.caption"),
+            "disabled_reason": detect_reason,
+            "options": [
+                _option(m, i18n.t(f"settings.calls.detect.{m}")) for m in config.CALL_DETECT_MODES
+            ],
+        },
+        "auto_stop": _toggle(v.call_auto_stop and v.detect_supported, detect_reason),
         "device": {
             "value": v.call_device,
             "caption": i18n.t("settings.device.caption"),
@@ -451,7 +464,13 @@ def validate_set(v: View, key: str, value: Any) -> "Tuple[Any, Optional[str]]":
         return (value, None) if value in config.SMART_MODES else invalid
     if key == "sound_theme":
         return (value, None) if value in config.SOUND_THEMES else invalid
-    if key in ("live_typing", "launch_at_login", "auto_system_audio", "call_stealth"):
+    if key == "call_detect":
+        if value not in config.CALL_DETECT_MODES:
+            return invalid
+        if value == "ask" and not v.detect_supported:
+            return unavailable
+        return value, None
+    if key in ("live_typing", "launch_at_login", "auto_system_audio", "call_stealth", "call_auto_stop"):
         if not isinstance(value, bool):
             return invalid
         if value and key == "live_typing" and live_typing_reason(v) is not None:
@@ -459,6 +478,8 @@ def validate_set(v: View, key: str, value: Any) -> "Tuple[Any, Optional[str]]":
         if value and key == "launch_at_login" and not v.login_available:
             return unavailable
         if value and key == "auto_system_audio" and not v.auto_supported:
+            return unavailable
+        if value and key == "call_auto_stop" and not v.detect_supported:
             return unavailable
         return value, None
     if key == "model":

@@ -234,13 +234,16 @@ struct CallsData: Decodable, Equatable {
     let autoSupported: Bool
     let callHotkey: PickerModel
     let stealth: ToggleModel
+    let detect: PickerModel
+    let autoStop: ToggleModel
     let autoCapture: ToggleModel
     let device: PickerModel
 
     enum CodingKeys: String, CodingKey {
-        case count, live, items, device, stealth
+        case count, live, items, device, stealth, detect
         case autoSupported = "auto_supported"
         case callHotkey = "call_hotkey"
+        case autoStop = "auto_stop"
         case autoCapture = "auto_capture"
     }
 }

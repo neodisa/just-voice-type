@@ -40,6 +40,11 @@ struct CallsSection: View {
                 ToggleRow(label: store.s("calls.stealth"), caption: store.s("calls.stealth.caption"),
                           key: "call_stealth", toggle: c.stealth)
                 RowSep()
+                PickerRow(label: store.s("calls.detect"), key: "call_detect", picker: c.detect)
+                RowSep()
+                ToggleRow(label: store.s("calls.autostop"), caption: store.s("calls.autostop.caption"),
+                          key: "call_auto_stop", toggle: c.autoStop)
+                RowSep()
                 ToggleRow(label: store.s("calls.auto"), caption: store.s("calls.auto.caption"),
                           key: "auto_system_audio", toggle: c.autoCapture)
                 RowSep()

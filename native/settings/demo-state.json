@@ -71,6 +71,13 @@
   "calls.stealth.caption": "Иконка не меняется во время звонка, запись видно только в меню. Звуки звонка и уведомление о расшифровке выключены.",
   "calls.auto": "Записывать собеседника автоматически",
   "calls.auto.caption": "Системный звук без виртуального драйвера, macOS 14.4 и новее. Записывается всё, что играет на Mac.",
+  "calls.detect": "Когда другая программа включает микрофон",
+  "calls.detect.caption": "Voice Type видит только, какие программы держат микрофон, — как оранжевая точка macOS. Звук не слушается.",
+  "calls.detect.ask": "Спрашивать",
+  "calls.detect.off": "Ничего не делать",
+  "calls.detect.reason": "Нужна macOS 14.2 или новее",
+  "calls.autostop": "Останавливать запись после звонка",
+  "calls.autostop.caption": "Когда программа звонка отпустила микрофон и 20 секунд ничего не играет. Запись без программы звонка останавливается вручную.",
   "calls.device": "Устройство вручную",
   "calls.device.none": "Не выбрано",
   "calls.consent": "Запись разговора может требовать согласия собеседника.",
@@ -830,6 +837,34 @@
    },
    "stealth": {
     "value": false,
+    "disabled_reason": null,
+    "link": null
+   },
+   "detect": {
+    "value": "ask",
+    "caption": "Voice Type видит только, какие программы держат микрофон, — как оранжевая точка macOS. Звук не слушается.",
+    "disabled_reason": null,
+    "options": [
+     {
+      "value": "ask",
+      "label": "Спрашивать",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     },
+     {
+      "value": "off",
+      "label": "Ничего не делать",
+      "glyph": null,
+      "note": null,
+      "disabled": false,
+      "separator_before": false
+     }
+    ]
+   },
+   "auto_stop": {
+    "value": true,
     "disabled_reason": null,
     "link": null
    },
