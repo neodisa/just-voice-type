@@ -100,62 +100,79 @@ class TestRelaunchBudget(unittest.TestCase):
 
 
 class TestRelaunch(unittest.TestCase):
-    def test_execs_same_interpreter_with_original_argv_and_budget_in_env(self):
-        calls = []
-        env = {"PATH": "/usr/bin", mic_recovery.ENV_KEY: ""}
+    """Перезапуск — новым процессом, не execve: после execve на месте macOS
+    не показывает статус-иконку нового образа (проверено 11.11.2026)."""
+
+    APP = "/Users/x/Applications/Voice Type.app"
+
+    def run_relaunch(self, *, app_path, env=None, now=777.0, diagnose=lambda r: None, spawn=None):
+        self.spawned, self.exits = [], []
         done = mic_recovery.relaunch(
             "start_hung",
-            env=env,
-            now=777.0,
-            execv=lambda exe, argv, e: calls.append((exe, argv, e)),
-            diagnose=lambda reason: None,
+            env={"PATH": "/usr/bin", mic_recovery.ENV_KEY: ""} if env is None else env,
+            now=now,
+            app_path=app_path,
+            spawn=spawn or (lambda cmd, e: self.spawned.append((cmd, e))),
+            exit=self.exits.append,
+            diagnose=diagnose,
         )
-        self.assertTrue(done)
-        exe, argv, new_env = calls[0]
-        self.assertEqual(exe, sys.executable)
-        self.assertEqual(list(argv), list(sys.orig_argv))
-        self.assertEqual(new_env[mic_recovery.ENV_KEY], "777.0")
-        self.assertEqual(new_env["PATH"], "/usr/bin")
+        return done
 
-    def test_no_exec_when_budget_exhausted(self):
+    def test_inside_the_bundle_relaunches_through_open(self):
+        self.assertTrue(self.run_relaunch(app_path=self.APP))
+        cmd, env = self.spawned[0]
+        self.assertEqual(cmd, ["/usr/bin/open", "-n", "-a", self.APP,
+                               "--env", f"{mic_recovery.ENV_KEY}=777.0"])
+        self.assertEqual(env[mic_recovery.ENV_KEY], "777.0")
+        self.assertEqual(self.exits, [0])
+
+    def test_outside_a_bundle_spawns_the_same_interpreter(self):
+        self.run_relaunch(app_path=None)
+        cmd, env = self.spawned[0]
+        self.assertEqual(cmd, [sys.executable, *sys.orig_argv[1:]])
+        self.assertEqual((env[mic_recovery.ENV_KEY], env["PATH"]), ("777.0", "/usr/bin"))
+        self.assertEqual(self.exits, [0])
+
+    def test_open_failure_falls_back_to_a_direct_spawn(self):
         calls = []
+
+        def spawn(cmd, env):
+            calls.append(cmd)
+            if cmd[0] == "/usr/bin/open":
+                raise OSError("LaunchServices said no")
+
+        self.run_relaunch(app_path=self.APP, spawn=spawn)
+        self.assertEqual(calls[1], [sys.executable, *sys.orig_argv[1:]])
+        self.assertEqual(self.exits, [0])
+
+    def test_nothing_happens_when_spawn_fails_entirely(self):
+        def spawn(cmd, env):
+            raise OSError("no")
+
+        self.assertFalse(self.run_relaunch(app_path=None, spawn=spawn))
+        self.assertEqual(self.exits, [])
+
+    def test_no_relaunch_when_budget_exhausted(self):
         prev = ",".join(["700.0"] * mic_recovery.BUDGET_MAX)
-        done = mic_recovery.relaunch(
-            "start_hung",
-            env={mic_recovery.ENV_KEY: prev},
-            now=777.0,
-            execv=lambda *a: calls.append(a),
-            diagnose=lambda reason: None,
-        )
-        self.assertFalse(done)
-        self.assertEqual(calls, [])
+        self.assertFalse(self.run_relaunch(app_path=self.APP, env={mic_recovery.ENV_KEY: prev}))
+        self.assertEqual((self.spawned, self.exits), ([], []))
 
-    def test_diagnostics_run_before_exec(self):
+    def test_diagnostics_run_before_spawn(self):
         order = []
         mic_recovery.relaunch(
-            "teardown_hung",
-            env={},
-            now=1.0,
-            execv=lambda *a: order.append("exec"),
+            "teardown_hung", env={}, now=1.0, app_path=None,
+            spawn=lambda *a: order.append("spawn"),
+            exit=lambda code: order.append("exit"),
             diagnose=lambda reason: order.append(("diag", reason)),
         )
-        self.assertEqual(order, [("diag", "teardown_hung"), "exec"])
+        self.assertEqual(order, [("diag", "teardown_hung"), "spawn", "exit"])
 
     def test_failing_diagnostics_do_not_block_relaunch(self):
-        calls = []
-
         def boom(reason):
             raise RuntimeError("sample not available")
 
-        done = mic_recovery.relaunch(
-            "start_hung",
-            env={},
-            now=1.0,
-            execv=lambda *a: calls.append(a),
-            diagnose=boom,
-        )
-        self.assertTrue(done)
-        self.assertEqual(len(calls), 1)
+        self.assertTrue(self.run_relaunch(app_path=None, diagnose=boom))
+        self.assertEqual(len(self.spawned), 1)
 
 
 class TestDumpThreads(unittest.TestCase):

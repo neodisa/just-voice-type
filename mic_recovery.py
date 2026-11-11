@@ -5,9 +5,12 @@
 блокируется на открытии микрофона. control_loop — единственный поток,
 который обслуживает команды, поэтому дальше приложение молчит, пока его не
 перезапустят руками. Застрявший в CoreAudio поток изнутри процесса не убить
-и Pa_Terminate поверх него ронять нельзя, а вот новый образ процесса
-(execve) получает чистый аудио-контекст — ровно то, что делал ручной
-перезапуск.
+и Pa_Terminate поверх него ронять нельзя, а вот новый процесс получает
+чистый аудио-контекст — ровно то, что делал ручной перезапуск.
+
+Перезапуск — именно новым процессом (`open -n` бандла), а не execve на
+месте: после execve macOS (проверено на 26.x) не показывает статус-иконку
+нового образа — приложение работает по клавишам, а в строке меню его нет.
 
 Здесь только чистая логика (когда перезапускаться, сколько раз можно,
 диагностика перед перезапуском) — без GUI и аудио, чтобы её можно было
@@ -33,8 +36,9 @@ TEARDOWN_HANG_SEC = 8.0
 # висит системно (coreaudiod), перезапуск не поможет — не крутимся в цикле
 BUDGET_MAX = 3
 BUDGET_WINDOW_SEC = 15 * 60
-# метки времени прошлых перезапусков переживают execve через окружение
+# метки времени прошлых перезапусков переходят в новый процесс через окружение
 ENV_KEY = "JVT_RELAUNCHES"
+OPEN = "/usr/bin/open"
 
 LOG_DIR = os.path.expanduser("~/Library/Logs/WhisperFlow")
 LOG_FILES = ("whisper_flow.log", "whisper_flow.err.log")
@@ -107,7 +111,7 @@ def sample_process(pid: int, out_path: str, seconds: int = 1) -> None:
 
 
 def default_diagnose(reason: str) -> None:
-    """Снять диагностику до перезапуска: после execve её уже не получить."""
+    """Снять диагностику до перезапуска: после выхода её уже не получить."""
     stamp = time.strftime("%Y%m%d-%H%M%S")
     print(
         f"[{time.strftime('%H:%M:%S')}] [recovery] {reason} — thread stacks:",
@@ -122,20 +126,56 @@ def default_diagnose(reason: str) -> None:
         print(f"[recovery] native stacks: {out}", file=sys.stderr, flush=True)
 
 
+def relaunch_commands(value: str, app_path: Optional[str]) -> "list[list[str]]":
+    """Чем запускать свежую копию, по порядку попыток.
+
+    Внутри .app — `open -n` того же бандла: ровно тот путь, которым
+    приложение стартует всегда (лаунчер, его окружение и файлы логов, права
+    macOS). Запасной путь и запуск из venv — тот же интерпретатор с тем же
+    argv."""
+    direct = [sys.executable, *list(sys.orig_argv)[1:]]
+    if app_path:
+        return [[OPEN, "-n", "-a", app_path, "--env", f"{ENV_KEY}={value}"], direct]
+    return [direct]
+
+
+def _spawn(cmd: "list[str]", env: dict) -> None:
+    if cmd[0] == OPEN:
+        # open возвращается, когда LaunchServices запустил новую копию
+        subprocess.run(
+            cmd, env=env, check=True, timeout=15,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    else:
+        # stdout/stderr наследуются — новая копия пишет в те же логи
+        subprocess.Popen(cmd, env=env, start_new_session=True)
+
+
+def _bundle_path() -> Optional[str]:
+    import login_item
+
+    return login_item.app_bundle_path()
+
+
+_AUTO = object()
+
+
 def relaunch(
     reason: str,
     *,
     env: Optional[dict] = None,
     now: Optional[float] = None,
-    execv: Callable = os.execve,
+    app_path=_AUTO,
+    spawn: Callable[[list, dict], None] = _spawn,
+    exit: Callable[[int], None] = os._exit,
     diagnose: Callable[[str], None] = default_diagnose,
 ) -> bool:
-    """Заменить процесс свежей копией себя (тот же интерпретатор и argv —
-    значит, те же TCC-права и те же файлы логов).
+    """Запустить свежую копию себя и выйти.
 
-    False — бюджет перезапусков исчерпан, ничего не сделано (решать дальше
-    вызывающему). При успехе execv не возвращается; True возвращается только
-    из тестов с подменённым execv."""
+    False — бюджет перезапусков исчерпан или новую копию запустить не
+    удалось; ничего не сделано, решать дальше вызывающему. При успехе
+    процесс завершается (os._exit: потоки, застрявшие в CoreAudio, не
+    держат выход); True возвращается только из тестов с подменённым exit."""
     env = dict(os.environ if env is None else env)
     now = time.time() if now is None else now
     ok, value = budget_allows(env.get(ENV_KEY, ""), now)
@@ -146,10 +186,19 @@ def relaunch(
     except Exception as e:
         print(f"[recovery] diagnostics failed: {e}", file=sys.stderr, flush=True)
     env[ENV_KEY] = value
-    sys.stdout.flush()
-    sys.stderr.flush()
-    execv(sys.executable, list(sys.orig_argv), env)
-    return True
+    path = _bundle_path() if app_path is _AUTO else app_path
+    for cmd in relaunch_commands(value, path):
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+            spawn(cmd, env)
+        except Exception as e:
+            print(f"[recovery] relaunch via {cmd[0]} failed: {e}", file=sys.stderr, flush=True)
+            continue
+        print(f"[recovery] new copy started via {cmd[0]} — exiting", file=sys.stderr, flush=True)
+        exit(0)
+        return True
+    return False
 
 
 def trim_log(path: str, max_bytes: int, keep_bytes: int) -> bool:

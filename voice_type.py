@@ -2238,8 +2238,8 @@ def run_app(args):
             if not mic_recovery.relaunch(reason):
                 recovery["gave_up"] = True
                 log(
-                    "[recovery] relaunch budget exhausted — CoreAudio stays "
-                    "wedged across restarts",
+                    "[recovery] no relaunch (budget exhausted or the new copy "
+                    "did not start) — CoreAudio stays wedged",
                     err=True,
                 )
                 notify(
