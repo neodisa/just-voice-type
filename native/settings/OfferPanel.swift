@@ -2,9 +2,11 @@
 //
 // Python (voice_type.py → offer_prompt.py) starts the helper with --offer and
 // writes one JSON line with the ready-made strings:
-//   {"type":"offer","title":…,"body":…,"record":…,"dismiss":…,"hint":…,"key":…}
+//   {"type":"offer","title":…,"body":…,"record":…,"dismiss":…,"hint":…,"key":…,"ignore":…}
 // The panel answers with one line and exits:
-//   {"type":"offer_answer","answer":"record"|"dismiss"}
+//   {"type":"offer_answer","answer":"record"|"dismiss"|"ignore"}
+// "ignore" — «Don't offer for {app}»: Python adds the app to the ignore list.
+// No "ignore" string (an app without a bundle id) — no such button.
 // Python withdraws the panel by closing stdin (the call app left the
 // microphone): EOF → exit without an answer.
 //
@@ -21,6 +23,7 @@ struct OfferModel: Decodable, Equatable {
     let dismiss: String
     let hint: String?
     let key: String?
+    let ignore: String?
 
     static let demo = OfferModel(
         title: "Google Chrome использует микрофон",
@@ -28,7 +31,8 @@ struct OfferModel: Decodable, Equatable {
         record: "Записать",
         dismiss: "Не сейчас",
         hint: "или",
-        key: "F13")
+        key: "F13",
+        ignore: "Не предлагать для Google Chrome")
 }
 
 enum OfferLayout {
@@ -71,6 +75,10 @@ struct OfferView: View {
                     }
                 }
                 .padding(.top, 12)
+                if let ignore = model.ignore, !ignore.isEmpty {
+                    QuietButton(title: ignore) { answer("ignore") }
+                        .padding(.top, 10)
+                }
             }
         }
         .padding(14)
@@ -79,6 +87,26 @@ struct OfferView: View {
         .overlay { RoundedRectangle(cornerRadius: T.radius).strokeBorder(T.lineStrong, lineWidth: 1) }
         .clipShape(RoundedRectangle(cornerRadius: T.radius))
         .environment(\.colorScheme, .dark)
+    }
+}
+
+/// A secondary action that should not compete with Record / Not now.
+private struct QuietButton: View {
+    let title: String
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .underline(hover)
+                .font(F.ui(12))
+                .foregroundColor(hover ? T.ink2 : T.ink3)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .fixedSize()
     }
 }
 

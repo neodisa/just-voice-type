@@ -1428,6 +1428,8 @@ def run_app(args):
     # остановить запись, когда программа звонка ушла
     call_detect_mode = {"value": cfg["call_detect"]}
     call_auto_stop = {"value": cfg["call_auto_stop"]}
+    # программы, которым не предлагать запись: {ключ: название}
+    call_ignore = {"value": dict(cfg["call_detect_ignore"])}
     # клавишу диктовки нажали во время скрытого звонка → иконка на
     # menubar_icon.PEEK_SEC показывает звонок (см. on_press)
     call_peek = {"until": 0.0}
@@ -1738,6 +1740,7 @@ def run_app(args):
             call_detect=call_detect_mode["value"],
             call_auto_stop=call_auto_stop["value"],
             detect_supported=mic_users.is_supported(),
+            call_ignore=dict(call_ignore["value"]),
             call_device=current_call_device["value"],
             input_devices=settings_ctx["devices"],
             terms=dict(cfg_now["replacements"]),
@@ -1820,6 +1823,11 @@ def run_app(args):
                 new = settings_model.vocab_remove(vocabulary["value"], a.get("index"))
             vocabulary["value"] = new
             config.update(vocabulary=new)
+        elif name == "call_unignore":
+            new = settings_model.ignore_remove(call_ignore["value"], a.get("id"))
+            if new != call_ignore["value"]:
+                call_ignore["value"] = new
+                config.update(call_detect_ignore=new)
         elif name == "favorite_toggle":
             toggle_favorite(a.get("code"))
         elif name == "call_toggle":
@@ -3039,6 +3047,11 @@ def run_app(args):
     def on_offer_answer(key, answer):
         if answer == "record":
             record_from_offer({"app": key})
+        elif answer == "ignore" and call_detect.ignorable(key):
+            name = app_label(key)
+            call_ignore["value"] = {**call_ignore["value"], key: name}
+            config.update(call_detect_ignore=call_ignore["value"])
+            log(f"[call-detect] never offer for {name} ({key})")
         else:
             log(f"[call-detect] offer dismissed ({app_label(key)})")
 
@@ -3053,6 +3066,8 @@ def run_app(args):
             "dismiss": i18n.t("offer.dismiss"),
             "hint": i18n.t("offer.hint"),
             "key": i18n.key_name(current_call_hotkey["value"]),
+            # без bundle id программу не запомнить — кнопки нет
+            "ignore": i18n.t("offer.ignore", app=name) if call_detect.ignorable(key) else None,
         }
         if call_offer.show(key, payload, on_offer_answer):
             log(f"[call-detect] offer panel: {name} ({key}) holds the microphone")
@@ -3100,6 +3115,7 @@ def run_app(args):
                     busy=bool(session["active"]) or not enabled["value"],
                     ask=call_detect_mode["value"] == "ask",
                     auto_stop=call_auto_stop["value"],
+                    ignore=call_ignore["value"],
                 )
                 for ev in events:
                     if isinstance(ev, call_detect.Ask):

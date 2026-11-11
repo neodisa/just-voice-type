@@ -163,6 +163,32 @@ missing.
   the notification cannot be clicked. The body then ends with «Нажмите {key},
   чтобы записать.» / «Press {key} to record.», naming the call key.
 
+## Ignore list
+
+The microphone is not only for calls: voice input in Claude or ChatGPT, or a
+dictation tool, held the mic long enough to get the offer. Such apps go on
+an ignore list.
+
+- Config `call_detect_ignore`: `{app_key: name}`, default `{}`. Order is kept;
+  junk entries are dropped, an empty name falls back to the key.
+- The panel gets a quiet third action under the buttons: «Не предлагать для
+  {app}» / «Don't offer for {app}». It answers `"ignore"`; Python adds the
+  app with its display name to the list and saves the config.
+- Only bundle-id keys can be ignored (`call_detect.ignorable`): a `pid:N`
+  key changes on every launch, so the panel gets no such button for it.
+- `Detector.poll(…, ignore=…)` drops ignored apps from `on_mic` before
+  anything else and removes them from `linked`. An ignored app is never
+  offered and never tied to a recording, so dictation during an in-person
+  meeting can no longer auto-stop it. Ignoring an app that has a shown offer
+  withdraws that offer.
+- Settings → Calls, after the detect picker: row «Не предлагать для» /
+  «Don't offer for» with one chip per app; ✕ («Снова предлагать» / «Offer
+  again») sends the action `call_unignore {id}`. Empty state: «Пока пусто.
+  Программа попадает сюда кнопкой «Не предлагать для…» на плашке.» There is
+  no manual add: the list is filled from the panel.
+- Contract: `calls.ignored: [{id, name}]` in the state, `IgnoredApp` in
+  `Protocol.swift`, `ignore` (optional string) in the offer payload.
+
 ## Auto-stop
 
 - `Stop` behaves exactly like the user pressing the call key:
@@ -261,6 +287,8 @@ Live check in the installed app after merge, on real calls:
 ## Out of scope
 
 - Starting a recording without asking.
-- A per-app «never ask» list (add it if the offers become a nuisance).
+- Telling calls from voice input automatically (for example «offer only
+  when the app also plays sound»): it would delay the offer in a silent
+  waiting room. The ignore list covers it for now.
 - Calls taken on the iPhone, beyond whatever process holds the Mac
   microphone.

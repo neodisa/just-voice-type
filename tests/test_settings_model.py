@@ -239,6 +239,21 @@ class TestCalls(Base):
         c = self.calls(detect_supported=True, call_detect="off", call_auto_stop=False)
         self.assertEqual((c["detect"]["value"], c["auto_stop"]["value"]), ("off", False))
 
+    def test_ignore_list(self):
+        self.assertEqual(self.calls()["ignored"], [])
+        c = self.calls(call_ignore={"com.anthropic.claudefordesktop": "Claude", "us.zoom.xos": "Zoom"})
+        self.assertEqual(c["ignored"], [
+            {"id": "com.anthropic.claudefordesktop", "name": "Claude"},
+            {"id": "us.zoom.xos", "name": "Zoom"},
+        ])
+
+    def test_ignore_strings(self):
+        s = build()["strings"]
+        self.assertEqual(s["calls.ignore"], "Не предлагать для")
+        self.assertIn("calls.ignore.caption", s)
+        self.assertIn("calls.ignore.empty", s)
+        self.assertIn("calls.ignore.remove", s)
+
     def test_detect_unsupported(self):
         c = self.calls(detect_supported=False)
         self.assertEqual(c["detect"]["value"], "off")
@@ -378,6 +393,13 @@ class TestTermEdits(Base):
         self.assertIsNotNone(err)
         self.assertEqual(sm.vocab_remove(v, 0), ["LIGA360"])
         self.assertEqual(sm.vocab_remove(v, 7), v)
+
+    def test_ignore_remove(self):
+        ign = {"com.anthropic.claudefordesktop": "Claude", "us.zoom.xos": "Zoom"}
+        self.assertEqual(sm.ignore_remove(ign, "us.zoom.xos"), {"com.anthropic.claudefordesktop": "Claude"})
+        self.assertEqual(sm.ignore_remove(ign, "com.google.Chrome"), ign)
+        self.assertEqual(sm.ignore_remove(ign, 3), ign)
+        self.assertEqual(len(ign), 2)  # исходный словарь не тронут
 
 
 class TestDayLabel(Base):

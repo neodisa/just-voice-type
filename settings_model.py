@@ -69,6 +69,7 @@ class View:
     call_detect: str = "ask"
     call_auto_stop: bool = True
     detect_supported: bool = False  # mic_users.is_supported(): macOS 14.2+
+    call_ignore: dict = field(default_factory=dict)  # config call_detect_ignore
     call_device: Optional[str] = None
     input_devices: list = field(default_factory=list)
     terms: dict = field(default_factory=dict)  # replacements: услышано → как писать
@@ -346,6 +347,7 @@ def _calls(v: View, exists: Callable[[str], bool]) -> dict:
             ],
         },
         "auto_stop": _toggle(v.call_auto_stop and v.detect_supported, detect_reason),
+        "ignored": [{"id": k, "name": n} for k, n in v.call_ignore.items()],
         "device": {
             "value": v.call_device,
             "caption": i18n.t("settings.device.caption"),
@@ -565,3 +567,8 @@ def vocab_remove(vocab: list, index: int) -> list:
     if not isinstance(index, int) or not 0 <= index < len(vocab):
         return vocab
     return [x for i, x in enumerate(vocab) if i != index]
+
+
+def ignore_remove(ignored: dict, key: Any) -> dict:
+    """Убрать программу из исключений детектора звонков (новый словарь)."""
+    return {k: n for k, n in ignored.items() if k != key}

@@ -78,6 +78,10 @@
   "calls.detect.reason": "Нужна macOS 14.2 или новее",
   "calls.autostop": "Останавливать запись после звонка",
   "calls.autostop.caption": "Когда программа звонка отпустила микрофон и 20 секунд ничего не играет. Запись без программы звонка останавливается вручную.",
+  "calls.ignore": "Не предлагать для",
+  "calls.ignore.caption": "Например, программы с голосовым вводом. Для них не появляется плашка, и они не останавливают запись звонка.",
+  "calls.ignore.empty": "Пока пусто. Программа попадает сюда кнопкой «Не предлагать для…» на плашке.",
+  "calls.ignore.remove": "Снова предлагать",
   "calls.device": "Устройство вручную",
   "calls.device.none": "Не выбрано",
   "calls.consent": "Запись разговора может требовать согласия собеседника.",
@@ -868,6 +872,16 @@
     "disabled_reason": null,
     "link": null
    },
+   "ignored": [
+    {
+     "id": "com.anthropic.claudefordesktop",
+     "name": "Claude"
+    },
+    {
+     "id": "com.openai.chat",
+     "name": "ChatGPT"
+    }
+   ],
    "auto_capture": {
     "value": true,
     "disabled_reason": null,

@@ -66,6 +66,7 @@ editor's key, the edit succeeded.
 | `favorite_toggle` | `code` | — |
 | `call_toggle` | — | — |
 | `call_copy`, `call_open` | `id` | — |
+| `call_unignore` | `id` (key from `calls.ignored`) | — |
 | `calls_open_folder` | — | — |
 | `model_retry` | `id` | — |
 | `check_updates` | — | — |
@@ -111,6 +112,7 @@ calls
   stealth          Toggle           (hidden recording; set key `call_stealth`)
   detect           Picker           (offer to record when another app holds the mic; set key `call_detect`)
   auto_stop        Toggle           (stop when the call app leaves the mic; set key `call_auto_stop`)
+  ignored          [{id, name}]     apps never offered and never linked to a recording (remove: `call_unignore`)
   auto_capture     Toggle
   device           Picker
 terms

@@ -227,6 +227,12 @@ struct CallLive: Decodable, Equatable {
     }
 }
 
+/// An app call detection never offers and never links to a recording.
+struct IgnoredApp: Decodable, Equatable, Identifiable {
+    let id: String     // mic_users.app_key (bundle id)
+    let name: String
+}
+
 struct CallsData: Decodable, Equatable {
     let count: Int
     let live: CallLive
@@ -236,11 +242,12 @@ struct CallsData: Decodable, Equatable {
     let stealth: ToggleModel
     let detect: PickerModel
     let autoStop: ToggleModel
+    let ignored: [IgnoredApp]
     let autoCapture: ToggleModel
     let device: PickerModel
 
     enum CodingKeys: String, CodingKey {
-        case count, live, items, device, stealth, detect
+        case count, live, items, device, stealth, detect, ignored
         case autoSupported = "auto_supported"
         case callHotkey = "call_hotkey"
         case autoStop = "auto_stop"

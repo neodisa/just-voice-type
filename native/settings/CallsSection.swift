@@ -42,6 +42,8 @@ struct CallsSection: View {
                 RowSep()
                 PickerRow(label: store.s("calls.detect"), key: "call_detect", picker: c.detect)
                 RowSep()
+                IgnoredRow(apps: c.ignored, dim: c.detect.value == "off")
+                RowSep()
                 ToggleRow(label: store.s("calls.autostop"), caption: store.s("calls.autostop.caption"),
                           key: "call_auto_stop", toggle: c.autoStop)
                 RowSep()
@@ -53,6 +55,37 @@ struct CallsSection: View {
             }
             NoteText(text: store.s("calls.consent"))
         }
+    }
+}
+
+/// «Не предлагать для»: apps added from the offer panel; ✕ offers them again.
+private struct IgnoredRow: View {
+    @EnvironmentObject private var store: Store
+    let apps: [IgnoredApp]
+    let dim: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(store.s("calls.ignore")).foregroundColor(T.ink).type(.ui, 13.5)
+            CaptionText(text: store.s("calls.ignore.caption")).padding(.top, 2)
+            if apps.isEmpty {
+                CaptionText(text: store.s("calls.ignore.empty"), color: T.ink3)
+                    .padding(.top, 10)
+            } else {
+                FlowLayout(spacing: 6, lineSpacing: 6) {
+                    ForEach(apps) { app in
+                        TagChip(label: app.name, dim: dim, removeHelp: store.s("calls.ignore.remove")) {
+                            store.action("call_unignore", ["id": app.id])
+                        }
+                        .help(app.id)
+                    }
+                }
+                .padding(.top, 10)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 }
 
