@@ -64,11 +64,15 @@ class ClickTest(unittest.TestCase):
 class FakeCenter:
     def __init__(self, error=None):
         self.requests = []
+        self.removed = []
         self.error = error
 
     def addNotificationRequest_withCompletionHandler_(self, request, handler):
         self.requests.append(request)
         handler(self.error)
+
+    def removeDeliveredNotificationsWithIdentifiers_(self, idents):
+        self.removed.extend(idents)
 
 
 class NotifyTest(unittest.TestCase):
@@ -110,6 +114,61 @@ class NotifyTest(unittest.TestCase):
         self.n.use_center(FakeCenter(error="not authorized"))
         self.n.notify("Voice Type", "hi")
         self.assertEqual(self.fallen_back, [("Voice Type", "hi")])
+
+
+class ActionTest(unittest.TestCase):
+    def setUp(self):
+        self.revealed, self.got = [], []
+        self.handlers = {"record_call": self.got.append}
+
+    def test_action_click_calls_its_handler(self):
+        notifier.handle_click({"action": "record_call", "app": "us.zoom.xos"}, notifier.DEFAULT_ACTION,
+                              self.revealed.append, self.handlers)
+        self.assertEqual(self.got, [{"action": "record_call", "app": "us.zoom.xos"}])
+
+    def test_unknown_action_and_dismiss_do_nothing(self):
+        notifier.handle_click({"action": "nope"}, notifier.DEFAULT_ACTION, self.revealed.append, self.handlers)
+        notifier.handle_click({"action": "record_call"}, "com.apple.UNNotificationDismissActionIdentifier",
+                              self.revealed.append, self.handlers)
+        self.assertEqual(self.got, [])
+
+    def test_reveal_still_works_with_handlers(self):
+        notifier.handle_click({"reveal": "/a.md"}, notifier.DEFAULT_ACTION, self.revealed.append, self.handlers)
+        self.assertEqual((self.revealed, self.got), (["/a.md"], []))
+
+
+class IdentTest(unittest.TestCase):
+    def setUp(self):
+        self.n = notifier.Notifier(log=lambda *a: None, fallback=lambda t, m: None)
+        self.center = FakeCenter()
+        self.n.use_center(self.center)
+
+    def test_identifier_and_user_info(self):
+        self.n.notify("Voice Type", "Zoom", ident="call-ask:us.zoom.xos",
+                      user_info={"action": "record_call", "app": "us.zoom.xos"})
+        r = self.center.requests[0]
+        self.assertEqual(r.identifier(), "call-ask:us.zoom.xos")
+        self.assertEqual(r.content().userInfo()["action"], "record_call")
+        self.assertEqual(r.content().userInfo()["app"], "us.zoom.xos")
+
+    def test_reveal_and_user_info_merge(self):
+        self.n.notify("Voice Type", "x", reveal="/a.md", user_info={"k": "v"})
+        info = self.center.requests[0].content().userInfo()
+        self.assertEqual((info["reveal"], info["k"]), ("/a.md", "v"))
+
+    def test_withdraw(self):
+        self.n.withdraw("call-ask:us.zoom.xos")
+        self.assertEqual(self.center.removed, ["call-ask:us.zoom.xos"])
+
+    def test_withdraw_without_center_is_a_no_op(self):
+        notifier.Notifier(log=lambda *a: None).withdraw("x")
+
+    def test_registered_action_reaches_the_handlers(self):
+        got = []
+        self.n.on_action("record_call", got.append)
+        notifier.handle_click({"action": "record_call"}, notifier.DEFAULT_ACTION, lambda p: None,
+                              self.n.handlers)
+        self.assertEqual(got, [{"action": "record_call"}])
 
 
 if __name__ == "__main__":

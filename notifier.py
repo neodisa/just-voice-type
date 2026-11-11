@@ -17,9 +17,11 @@ voice_type.run_app.
 import os
 import subprocess
 import uuid
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional
 
 REVEAL_KEY = "reveal"
+# userInfo["action"] — имя обработчика клика (Notifier.on_action)
+ACTION_KEY = "action"
 DEFAULT_ACTION = "com.apple.UNNotificationDefaultActionIdentifier"
 # запуск из venv: mainBundle — Python.app, уведомления ушли бы от имени Python
 FOREIGN_BUNDLES = frozenset({"org.python.python"})
@@ -49,13 +51,24 @@ def reveal_in_finder(path: str, workspace=None) -> bool:
     return False
 
 
-def handle_click(user_info, action: str, reveal: Callable[[str], object]) -> None:
-    """Клик по уведомлению: по умолчанию — показать файл, если он привязан."""
+def handle_click(
+    user_info,
+    action: str,
+    reveal: Callable[[str], object],
+    handlers: Optional[Dict[str, Callable[[dict], object]]] = None,
+) -> None:
+    """Клик по уведомлению: показать привязанный файл или вызвать обработчик
+    из userInfo["action"] (например, «записать звонок»)."""
     if action != DEFAULT_ACTION or not user_info:
         return
     path = user_info.get(REVEAL_KEY)
     if path:
         reveal(str(path))
+        return
+    name = user_info.get(ACTION_KEY)
+    handler = (handlers or {}).get(str(name)) if name else None
+    if handler is not None:
+        handler({str(k): v for k, v in dict(user_info).items()})
 
 
 def _bundle_id() -> Optional[str]:
@@ -86,7 +99,7 @@ def _make_delegate_class():
                 content = response.notification().request().content()
                 action = str(response.actionIdentifier())
                 self.log(f"[notify] clicked ({action})")
-                handle_click(content.userInfo(), action, self.reveal)
+                handle_click(content.userInfo(), action, self.reveal, self.handlers)
             except Exception as e:  # клик не должен ронять приложение
                 self.log(f"[notify] click failed: {e}")
             finally:
@@ -113,10 +126,16 @@ class Notifier:
         self._reveal = reveal
         self._center = None
         self._delegate = None
+        self.handlers: Dict[str, Callable[[dict], object]] = {}
 
     @property
     def native(self) -> bool:
         return self._center is not None
+
+    def on_action(self, name: str, handler: Callable[[dict], object]) -> None:
+        """Клик по уведомлению с user_info={"action": name, …} вызовет
+        handler(user_info). Вызывается с потока делегата уведомлений."""
+        self.handlers[name] = handler
 
     def use_center(self, center) -> None:
         """Подменить центр уведомлений (тесты)."""
@@ -136,6 +155,7 @@ class Notifier:
         center = UN.UNUserNotificationCenter.currentNotificationCenter()
         self._delegate = _make_delegate_class().alloc().init()
         self._delegate.reveal = self._reveal
+        self._delegate.handlers = self.handlers
         self._delegate.log = self._log
         center.setDelegate_(self._delegate)
 
@@ -149,7 +169,16 @@ class Notifier:
         )
         self._center = center
 
-    def notify(self, title: str, message: str, reveal: Optional[str] = None) -> None:
+    def notify(
+        self,
+        title: str,
+        message: str,
+        reveal: Optional[str] = None,
+        ident: Optional[str] = None,
+        user_info: Optional[dict] = None,
+    ) -> None:
+        """ident — чтобы потом убрать уведомление (withdraw) и чтобы повтор
+        с тем же ident заменял прежнее, а не копился."""
         if self._center is None:
             self._fallback(title, message)
             return
@@ -158,10 +187,13 @@ class Notifier:
         content = UN.UNMutableNotificationContent.alloc().init()
         content.setTitle_(title)
         content.setBody_(message)
+        info = dict(user_info or {})
         if reveal:
-            content.setUserInfo_({REVEAL_KEY: reveal})
+            info[REVEAL_KEY] = reveal
+        if info:
+            content.setUserInfo_(info)
         request = UN.UNNotificationRequest.requestWithIdentifier_content_trigger_(
-            str(uuid.uuid4()), content, None
+            ident or str(uuid.uuid4()), content, None
         )
 
         def done(error):
@@ -170,3 +202,12 @@ class Notifier:
                 self._fallback(title, message)
 
         self._center.addNotificationRequest_withCompletionHandler_(request, done)
+
+    def withdraw(self, ident: str) -> None:
+        """Убрать доставленное уведомление (например, звонок уже кончился)."""
+        if self._center is None:
+            return
+        try:
+            self._center.removeDeliveredNotificationsWithIdentifiers_([ident])
+        except Exception as e:
+            self._log(f"[notify] withdraw failed: {e}")
