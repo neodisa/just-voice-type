@@ -48,6 +48,7 @@ import mic_users
 import model_cache
 import model_catalog
 import notifier
+import offer_prompt
 import polish
 import settings_bridge
 import settings_model
@@ -3033,8 +3034,29 @@ def run_app(args):
     def app_label(key):
         return mic_state["names"].get(key) or i18n.t("call.other_app")
 
+    call_offer = offer_prompt.OfferPrompt(log=log)
+
+    def on_offer_answer(key, answer):
+        if answer == "record":
+            record_from_offer({"app": key})
+        else:
+            log(f"[call-detect] offer dismissed ({app_label(key)})")
+
     def offer_call(key):
         name = app_label(key)
+        # своя плашка: системные уведомления Voice Type macOS может не
+        # показывать вовсе (см. offer_prompt); уведомление — запасной путь
+        payload = {
+            "title": i18n.t("offer.title", app=name),
+            "body": i18n.t("offer.body.autostop" if call_auto_stop["value"] else "offer.body"),
+            "record": i18n.t("offer.record"),
+            "dismiss": i18n.t("offer.dismiss"),
+            "hint": i18n.t("offer.hint"),
+            "key": i18n.key_name(current_call_hotkey["value"]),
+        }
+        if call_offer.show(key, payload, on_offer_answer):
+            log(f"[call-detect] offer panel: {name} ({key}) holds the microphone")
+            return
         if _notifier.native:
             body = i18n.t("notify.call_offer", app=name)
         else:  # osascript-уведомление не кликается — подскажем клавишу
@@ -3070,6 +3092,8 @@ def run_app(args):
                 use = mic_users.usage(clients)
                 mic_state["on_mic"] = use.on_mic
                 mic_state["names"].update(use.names)
+                if recording and call_offer.showing:
+                    call_offer.withdraw()  # запись уже идёт (клавиша/меню)
                 events = det.poll(
                     time.time(), use.on_mic, use.playing,
                     recording=recording,
@@ -3081,6 +3105,7 @@ def run_app(args):
                     if isinstance(ev, call_detect.Ask):
                         offer_call(ev.key)
                     elif isinstance(ev, call_detect.Withdraw):
+                        call_offer.withdraw(ev.key)
                         _notifier.withdraw(offer_ident(ev.key))
                     elif isinstance(ev, call_detect.Stop) and call_session["active"]:
                         log(

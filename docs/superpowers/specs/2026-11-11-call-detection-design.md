@@ -119,7 +119,25 @@ Linking a recording to apps:
 The detector must not raise. The thread wraps each poll and logs repeated
 errors once, the same way the watchdog does.
 
-## Offer to record (notification)
+## Offer to record
+
+**Update 11.11.2026:** the offer is Voice Type's own panel, not a system
+notification. macOS reported `authorizationStatus: Denied` for Voice Type and
+delivered the notification only to the Notification Centre list, with no
+banner, so the user never saw it. The panel is the settings helper in
+`--offer` mode (`native/settings/OfferPanel.swift`, driven by
+`offer_prompt.py`):
+- a non-activating panel at the top-right of the main screen, 12 pt below the
+  menu bar, in the settings window's style;
+- buttons «Записать» and «Не сейчас», plus the call key as a key cap;
+- `sharingType = .none`, so it is kept out of screen shares where macOS
+  honours that;
+- `Withdraw` closes the helper's stdin, and the panel leaves without an
+  answer.
+
+The notification below is now only the fallback for when the helper is
+missing.
+
 
 - Title «Voice Type». Body «{app} использует микрофон. Записать звонок?» /
   «{app} is using the microphone. Record the call?». No sound: the

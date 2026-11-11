@@ -6,6 +6,7 @@
 //   JustVoiceTypeSettings --demo [state.json]   window on demo-state.json, messages → stderr
 //   JustVoiceTypeSettings --render-dir DIR [--state state.json]   PNGs, no window
 //   JustVoiceTypeSettings --protocol-selftest   ready → read one state → echo action
+//   JustVoiceTypeSettings --offer               «record the call?» panel (OfferPanel.swift)
 
 import AppKit
 import SwiftUI
@@ -21,6 +22,10 @@ enum JustVoiceTypeSettingsMain {
         }
         signal(SIGPIPE, SIG_IGN)
         FontRegistry.registerAll()
+
+        if args.contains("--offer") {
+            OfferMode.run()
+        }
 
         if let i = args.firstIndex(of: "--render-dir") {
             guard i + 1 < args.count else {

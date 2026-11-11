@@ -103,6 +103,16 @@ enum Renderer {
                 failed = true
             }
         }
+        let offer = ImageRenderer(content: OfferView(model: .demo) { _ in }
+            .padding(24)
+            .background(Color(white: 0.32)))
+        offer.scale = 2
+        if let cg = offer.cgImage, write(cg, to: out.appendingPathComponent("offer.png")) {
+            print(out.appendingPathComponent("offer.png").path)
+        } else {
+            Log.err("render failed: offer")
+            failed = true
+        }
         return failed ? 1 : 0
     }
 
