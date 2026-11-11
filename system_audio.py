@@ -167,6 +167,11 @@ class SystemAudioCapture:
         self._started_ts: "Optional[float]" = None
         self._stopped = False
 
+    @property
+    def pid(self) -> "Optional[int]":
+        """pid хелпера (пока он запущен) — call_detect не считает его звонком."""
+        return self._proc.pid if self._proc is not None else None
+
     def start(self) -> None:
         # дефолтная буферизация → stdout это BufferedReader (есть read1);
         # bufsize=0 дал бы сырой поток без read1
@@ -328,6 +333,10 @@ class CombinedCallCapture:
         # сколько сэмплов 16к уже отдано с каждой дорожки — из этого получаем
         # метку времени реплики (позиция в звонке), без дрейфа настенных часов
         self._consumed = {"system": 0, "mic": 0}
+
+    @property
+    def helper_pid(self) -> "Optional[int]":
+        return getattr(self._system, "pid", None)
 
     def stuck_teardown(self, older_than: float = 5.0):
         """Для watchdog: залипшее закрытие стрима микрофона. Системную

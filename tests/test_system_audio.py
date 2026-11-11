@@ -347,5 +347,21 @@ class TestCombinedCallCapture(unittest.TestCase):
         self.assertLess(cap.seconds_since_last_frame(), 1.0)
 
 
+class TestHelperPid(unittest.TestCase):
+    """call_detect не должен принять наш собственный хелпер за программу звонка."""
+
+    def test_no_pid_before_start(self):
+        self.assertIsNone(system_audio.SystemAudioCapture(argv=["true"]).pid)
+
+    def test_combined_capture_exposes_the_helper_pid(self):
+        class Sys:
+            pid = 4242
+
+        self.assertEqual(system_audio.CombinedCallCapture(system=Sys(), mic=None).helper_pid, 4242)
+
+    def test_combined_capture_without_a_pid(self):
+        self.assertIsNone(system_audio.CombinedCallCapture(system=object(), mic=None).helper_pid)
+
+
 if __name__ == "__main__":
     unittest.main()
